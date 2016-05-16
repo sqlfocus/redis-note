@@ -1,191 +1,57 @@
-This README is just a fast *quick start* document. You can find more detailed documentation at http://redis.io.
+本系列文档摘录redis的实现逻辑，备忘
 
-What is Redis?
---------------
+<NOTE>
+    1) 源码redis-3.2.0
+    2) 源码目录: ~/src
+    3) 除代码注释外, 重要的想法将以.brief文件的形式放置在~目录中
 
-Redis is often referred as a *data structures* server. What this means is that Redis provides access to mutable data structures via a set of commands, which are sent using a *server-client* model with TCP sockets and a simple protocol. So different processes can query and modify the same data structures in a shared way.
+Redis是一个开源的使用ANSI C语言编写、支持网络、可基于内存亦可持久化的日志型、
+Key-Value数据库，并提供多种语言的API
 
-Data structures implemented into Redis have a few special properties:
 
-* Redis cares to store them on disk, even if they are always served and modified into the server memory. This means that Redis is fast, but that is also non-volatile.
-* Implementation of data structures stress on memory efficiency, so data structures inside Redis will likely use less memory compared to the same data structure modeled using an high level programming language.
-* Redis offers a number of features that are natural to find in a database, like replication, tunable levels of durability, cluster, high availability.
+Redis is what is called a key-value store, often referred to as NoSQL database
+采用键值存储，通常称为非关系型数据库
 
-Another good example is to think of Redis as a more complex version of memcached, where the operations are not just SETs and GETs, but operations to work with complex data types like Lists, Sets, ordered data structures, and so forth.
+常用的指令
+    SET  xxx x-value        设置某个关键字，指定其值
+    SETNX xxx x-val         如果不存在则设置关键字, 指定其值
+    GET  xxx                获取关键字的值
+    DEL  xxx                删除关键字
+    INCR xxx                增加关键字的值
+    EXPIRE xxx              设置过期时限
+    TTL xxx                 查看过期时限
 
-If you want to know more, this is a list of selected starting points:
+支持的数据类型
+    list
+        RPUSH   list  val   在尾部插入数据
+        LPUSH   list  val   在头部插入数据
+        LLEN    list        统计链表长度
+        LRANGE  list  beg-id end-id 罗列始末id之间的元素
+        LPOP    list        弹出头部数据
+        RPOP    list        弹出尾部数据
 
-* Introduction to Redis data types. http://redis.io/topics/data-types-intro
-* Try Redis directly inside your browser. http://try.redis.io
-* The full list of Redis commands. http://redis.io/commands
-* There is much more inside the Redis official documentation. http://redis.io/documentation
+    set
+        SADD    set  val    集合中加入元素
+        SREM    set  val    从集合移除元素
+        SISMEMBER   set val 判断是否在集合中
+        SUNION  set1 set2 ...   组合两个或多个集合，返回组合结果
 
-Building Redis
---------------
+    sorted set
+        ZADD    set  sorted-score val   排序集合加入元素
+        ZRANGE  set beg-id end-id       按照sorted-score排序后，按区间输出
 
-Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
-We support big endian and little endian architectures, and both 32 bit
-and 64 bit systems.
+    hash
+        HSET    key:key-val val1:val1-val   插入hash表
+        HMSET   key:key-val val1:val1-val val2:val2-val ...
+                                            多个值插入hash表
+        HGETALL key:key-val                 获取key对应的所有val
+        HGET    key:key-val val1            获取key对应的某个val
+        HINCRBY key:key-val val1            增加某个键值的值
+        HDEL    key:key-val val1            删除某个键值
 
-It may compile on Solaris derived systems (for instance SmartOS) but our
-support for this platform is *best effort* and Redis is not guaranteed to
-work as well as in Linux, OSX, and \*BSD there.
+Redis提供了两种持久化方法，RDB/AOF; 
+    RDB: 将当前内存中的数据库快照保存到磁盘文件中, 在Redis重启动时, RDB程序
+        可以通过载入RDB文件来还原数据库的状态
+    AOF: 持久化记录服务器执行的所有写操作命令, 并在服务器启动时, 通过重新执行
+        这些命令来还原数据集
 
-It is as simple as:
-
-    % make
-
-You can run a 32 bit Redis binary using:
-
-    % make 32bit
-
-After building Redis is a good idea to test it, using:
-
-    % make test
-
-Fixing build problems with dependencies or cached build options
----------
-
-Redis has some dependencies which are included into the `deps` directory.
-`make` does not rebuild dependencies automatically, even if something in the
-source code of dependencies is changed.
-
-When you update the source code with `git pull` or when code inside the
-dependencies tree is modified in any other way, make sure to use the following
-command in order to really clean everything and rebuild from scratch:
-
-    make distclean
-
-This will clean: jemalloc, lua, hiredis, linenoise.
-
-Also if you force certain build options like 32bit target, no C compiler
-optimizations (for debugging purposes), and other similar build time options,
-those options are cached indefinitely until you issue a `make distclean`
-command.
-
-Fixing problems building 32 bit binaries
----------
-
-If after building Redis with a 32 bit target you need to rebuild it
-with a 64 bit target, or the other way around, you need to perform a
-`make distclean` in the root directory of the Redis distribution.
-
-In case of build errors when trying to build a 32 bit binary of Redis, try
-the following steps:
-
-* Install the packages libc6-dev-i386 (also try g++-multilib).
-* Try using the following command line instead of `make 32bit`:
-  `make CFLAGS="-m32 -march=native" LDFLAGS="-m32"`
-
-Allocator
----------
-
-Selecting a non-default memory allocator when building Redis is done by setting
-the `MALLOC` environment variable. Redis is compiled and linked against libc
-malloc by default, with the exception of jemalloc being the default on Linux
-systems. This default was picked because jemalloc has proven to have fewer
-fragmentation problems than libc malloc.
-
-To force compiling against libc malloc, use:
-
-    % make MALLOC=libc
-
-To compile against jemalloc on Mac OS X systems, use:
-
-    % make MALLOC=jemalloc
-
-Verbose build
--------------
-
-Redis will build with a user friendly colorized output by default.
-If you want to see a more verbose output use the following:
-
-    % make V=1
-
-Running Redis
--------------
-
-To run Redis with the default configuration just type:
-
-    % cd src
-    % ./redis-server
-    
-If you want to provide your redis.conf, you have to run it using an additional
-parameter (the path of the configuration file):
-
-    % cd src
-    % ./redis-server /path/to/redis.conf
-
-It is possible to alter the Redis configuration passing parameters directly
-as options using the command line. Examples:
-
-    % ./redis-server --port 9999 --slaveof 127.0.0.1 6379
-    % ./redis-server /etc/redis/6379.conf --loglevel debug
-
-All the options in redis.conf are also supported as options using the command
-line, with exactly the same name.
-
-Playing with Redis
-------------------
-
-You can use redis-cli to play with Redis. Start a redis-server instance,
-then in another terminal try the following:
-
-    % cd src
-    % ./redis-cli
-    redis> ping
-    PONG
-    redis> set foo bar
-    OK
-    redis> get foo
-    "bar"
-    redis> incr mycounter
-    (integer) 1
-    redis> incr mycounter
-    (integer) 2
-    redis>
-
-You can find the list of all the available commands at http://redis.io/commands.
-
-Installing Redis
------------------
-
-In order to install Redis binaries into /usr/local/bin just use:
-
-    % make install
-
-You can use `make PREFIX=/some/other/directory install` if you wish to use a
-different destination.
-
-Make install will just install binaries in your system, but will not configure
-init scripts and configuration files in the appropriate place. This is not
-needed if you want just to play a bit with Redis, but if you are installing
-it the proper way for a production system, we have a script doing this
-for Ubuntu and Debian systems:
-
-    % cd utils
-    % ./install_server.sh
-
-The script will ask you a few questions and will setup everything you need
-to run Redis properly as a background daemon that will start again on
-system reboots.
-
-You'll be able to stop and start Redis using the script named
-`/etc/init.d/redis_<portnumber>`, for instance `/etc/init.d/redis_6379`.
-
-Code contributions
----
-
-Note: by contributing code to the Redis project in any form, including sending
-a pull request via Github, a code fragment or patch via private email or
-public discussion groups, you agree to release your code under the terms
-of the BSD license that you can find in the [COPYING][1] file included in the Redis
-source distribution.
-
-Please see the [CONTRIBUTING][2] file in this source distribution for more
-information.
-
-Enjoy!
-
-[1]: https://github.com/antirez/redis/blob/unstable/COPYING
-[2]: https://github.com/antirez/redis/blob/unstable/CONTRIBUTING
