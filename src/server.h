@@ -704,8 +704,8 @@ struct redisServer {
     char **exec_argv;           /* Executable argv vector (copy). */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
-    dict *commands;             /* Command table */
-    dict *orig_commands;        /* Command table before command renaming. */
+    dict *commands;             /* 服务器支持的指令集, 命令rename后 */
+    dict *orig_commands;        /* 支持的指令集, before command renaming */
     aeEventLoop *el;
     unsigned lruclock:LRU_BITS; /* Clock for LRU eviction */
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
@@ -717,7 +717,7 @@ struct redisServer {
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     /* Networking */
-    int port;                   /* TCP listening port */
+    int port;                   /* 监听接口, 默认6379 */
     int tcp_backlog;            /* TCP listen() backlog */
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to */
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
@@ -745,9 +745,10 @@ struct redisServer {
     off_t loading_loaded_bytes;
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
-    /* Fast pointers to often looked up command */
-    struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
-                        *rpopCommand, *sremCommand, *execCommand;
+    /* 记录常用指令, 省掉了字典查找, 加速 */
+    struct redisCommand *delCommand, *multiCommand, *lpushCommand, 
+                        *lpopCommand, *rpopCommand, *sremCommand, 
+                        *execCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -979,11 +980,12 @@ typedef struct pubsubPattern {
 typedef void redisCommandProc(client *c);
 typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 struct redisCommand {
-    char *name;
-    redisCommandProc *proc;
-    int arity;
-    char *sflags; /* Flags as string representation, one char per flag. */
-    int flags;    /* The actual flags, obtained from the 'sflags' field. */
+    char *name;                 /* 指令名, 如GET/SET/... */
+    redisCommandProc *proc;     /* 处理句柄 */
+    int arity;                  /* 参数个数, -N代表>=N */
+    char *sflags;               /* 标识的字符串形式, 每个字符一个标志,
+                                   参考server.c/redisCommandTable[]上的注释 */
+    int flags;                  /* 标识的位形式, 可读式-->程序化 */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;

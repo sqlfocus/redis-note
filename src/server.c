@@ -67,8 +67,8 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 /*================================= Globals ================================= */
 
-/* Global vars */
-struct redisServer server; /* server global state */
+/* 维护redis服务器全局变量 */
+struct redisServer server;
 
 /* Our command table.
  *
@@ -122,6 +122,7 @@ struct redisServer server; /* server global state */
  *    Note that commands that may trigger a DEL as a side effect (like SET)
  *    are not fast commands.
  */
+/* 普通redis服务器指令集 */
 struct redisCommand redisCommandTable[] = {
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},
@@ -1563,7 +1564,9 @@ void initServerConfig(void) {
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
     server.orig_commands = dictCreate(&commandTableDictType,NULL);
+    /* 注册redis服务器处理的指令集 */
     populateCommandTable();
+    /* 单独记录常用指令, 加速 */
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
     server.lpushCommand = lookupCommandByCString("lpush");
@@ -1971,7 +1974,7 @@ void initServer(void) {
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
- * we have on top of redis.c file. */
+ * we have on top of redis.c file. 注册硬编码的指令集 */
 void populateCommandTable(void) {
     int j;
     int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
@@ -1981,7 +1984,7 @@ void populateCommandTable(void) {
         char *f = c->sflags;
         int retval1, retval2;
 
-        while(*f != '\0') {
+        while(*f != '\0') {     /* 标识: 字符串形式-->位形式 */
             switch(*f) {
             case 'w': c->flags |= CMD_WRITE; break;
             case 'r': c->flags |= CMD_READONLY; break;
@@ -2001,6 +2004,8 @@ void populateCommandTable(void) {
             f++;
         }
 
+        /* 注册指令集, 注册到两个字典, 其中.orig_commands不再变化;
+         * 而.commands则可能被redis.conf文件的rename-command影响 */
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
@@ -2332,6 +2337,7 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
+    /* 查找对应的注册指令 */
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
         flagTransaction(c);
@@ -2497,6 +2503,7 @@ int processCommand(client *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
+        /* 普通命令执行入口点 */
         call(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
@@ -3946,6 +3953,7 @@ int main(int argc, char **argv) {
     gettimeofday(&tv,NULL);
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     server.sentinel_mode = checkForSentinelMode(argc,argv);
+    /* 初始化服务器配置, 如注册指令集等 */
     initServerConfig();
 
     /* Store the executable path and arguments in a safe place in order
@@ -4076,6 +4084,7 @@ int main(int argc, char **argv) {
     }
 
     aeSetBeforeSleepProc(server.el,beforeSleep);
+    /* 事件处理入口 */
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

@@ -83,6 +83,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
+    /* 更新数据库 */
     setKey(c->db,key,val);
     server.dirty++;
     if (expire) setExpire(c->db,key,mstime()+milliseconds);
@@ -136,6 +137,7 @@ void setCommand(client *c) {
     }
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
+    /* 最终指令通用例程 */
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 }
 

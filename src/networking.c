@@ -1280,6 +1280,7 @@ void processInputBuffer(client *c) {
             }
         }
 
+        /* 拆分redis协议字符串到, client->argc/argv */
         if (c->reqtype == PROTO_REQ_INLINE) {
             if (processInlineBuffer(c) != C_OK) break;
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
@@ -1293,6 +1294,7 @@ void processInputBuffer(client *c) {
             resetClient(c);
         } else {
             /* Only reset the client when the command was executed. */
+            /* 执行命令 */
             if (processCommand(c) == C_OK)
                 resetClient(c);
             /* freeMemoryIfNeeded may flush slave output buffers. This may result
@@ -1328,6 +1330,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+    /* 接收并读取客户端请求 */
     nread = read(fd, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (errno == EAGAIN) {
@@ -1357,6 +1360,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(c);
         return;
     }
+    /* 处理请求 */
     processInputBuffer(c);
 }
 

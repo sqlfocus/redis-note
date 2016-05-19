@@ -1,0 +1,36 @@
+本文档简略介绍redis处理CLI命令的流程.
+
+命令注册
+--------
+支持的命令数组
+struct redisCommand redisCommandTable[] = {     src/server.c
+    ...
+};
+--main()                                        src/server.c
+    --initServerConfig()
+        --populateCommandTable()
+            --dictAdd()
+
+命令处理(SET msg "hello")
+--------
+--main()                                        src/server.c
+    --aeMain()                                  src/ae.c
+        --aeProcessEvents()
+            --aeApiPoll()
+            --aeFileEvent->rfileProc()
+            -->readQueryFromClient()            src/networking.c
+                --read()
+                --processInputBuffer()
+                    --processMultibulkBuffer()
+                    --processCommand()          src/server.c
+                        --lookupCommand()
+                        --call()
+                            --client->cmd->proc()
+                            -->setCommand()                 src/t_string.c
+                                --setGenericCommand()
+                                    --setKey()              src/db.c
+                                        --dbAdd()
+                                            --dictAdd()     src/dict.c
+                                                --dictAddRaw()
+                                                --dictSetVal()
+
