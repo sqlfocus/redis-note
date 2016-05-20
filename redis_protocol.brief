@@ -1,0 +1,76 @@
+本文档简略描述redis协议, 以便能更好理解redis CLI交互代码.
+
+官方文档
+--------
+http://www.redis.cn/topics/protocol.html
+http://redis.io/topics/protocol
+
+
+简略概述
+--------
+Redis在TCP端口6379上监听
+Redis消息包括消息头标识, 消息行(行里可能还有个数据块大小描述)
+Redis消息以行划分，每行以\r\n行结束
+发送给Redis服务端的参数是二进制安全的
+
+Redis协议在以下几点之间做出了折衷：
+    * 简单的实现
+    * 快速地被计算机解析
+    * 可以被人工简单得解析
+
+
+请求消息
+--------
+    * (*) 请求参数个数 
+    * ($) 参数字节数(不包括换行符长度\r\n)
+
+回应消息
+--------
+    * (+) Simple Strings, 单行回复
+    * (-) Errors, 错误消息
+    * (:) Integers, 整形数字
+    * ($) Bulk Strings, 批量回复
+    * (*) Arrays, 多个批量回复
+
+示例
+-----
+命令:       
+    SET HENRY  HENRYFAN
+
+Redis协议:
+    *3\r\n
+    $3\r\n
+    SET\r\n
+    $5\r\n
+    HENRY\r\n
+    $8\r\n
+    HENRYFAN\r\n
+
+服务端操作成功:
+    +OK\r\n
+
+服务端错误返回:
+    -错误信息\r\n
+
+
+
+redisCommand()
+--------------
+此函数将CLI命令行的指令转换为reids协议格式的字符串, 然后发送到
+服务器端, 并等待服务器端响应, 随后解析响应成redis底层的对象树,
+并返回给客户端, 以便显示.
+--redisvCommand()                               deps/hiredis/hiredis.c
+    --redisvAppendCommand()                     形成redis协议
+        --redisvFormatCommand()
+        --__redisAppendCommand()
+    --__redisBlockForReply()
+        --redisGetReply()
+            --redisBufferWrite()                发送redis协议字符串到服务器
+            --redisBufferRead()                 接收回应
+            --redisGetReplyFromReader()         解析回应redis协议字符串
+                --redisReaderGetReply()
+                    --processItem()
+                        --processLineItem()
+                        --processBulkItem()
+                        --processMultiBulkItem()
+

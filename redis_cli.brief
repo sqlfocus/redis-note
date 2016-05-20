@@ -1,0 +1,29 @@
+本文档简略摘录CLI的命令处理流程, 以期更深入了解redis协议的封装及
+解析流程, 方便拓展!
+
+主交互流程
+----------
+--main()                                    src/redis-cli.c
+    --parseOptions()
+    --cliConnect()
+        --redisConnect()
+        --anetKeepAlive()
+        --cliAuth()
+            --redisCommand()                deps/hiredis/hiredis.c
+        --cliSelect()
+    --noninteractive()
+        --issueCommand()
+            --issueCommandRepeat()
+                --cliSendCommand()
+                    --redisAppendCommandArgv()      deps/hiredis/hiredis.c
+                    --cliReadReply()
+                        --redisGetReply()           deps/hiredis/hiredis.c
+                        --cliFormatReplyRaw()
+                        --fwrite()
+    --repl()
+        --issueCommandRepeat()
+
+
+
+
+

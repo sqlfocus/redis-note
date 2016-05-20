@@ -79,9 +79,9 @@ int spectrum_palette_size;
 
 static redisContext *context;
 static struct config {
-    char *hostip;
-    int hostport;
-    char *hostsocket;
+    char *hostip;                       /*待连接服务器的地址*/
+    int hostport;                       /*待连接服务器的端口*/
+    char *hostsocket;                   /*unix socket管道名*/
     long repeat;
     long interval;
     int dbnum;
@@ -419,11 +419,13 @@ static void freeHintsCallback(void *ptr) {
  * Networking / parsing
  *--------------------------------------------------------------------------- */
 
-/* Send AUTH command to the server */
+/* 发送AUTH命令, 向服务器认证 */
 static int cliAuth(void) {
     redisReply *reply;
     if (config.auth == NULL) return REDIS_OK;
 
+    /* 此函数定义在~/deps/hiredis/hiredis.c, 按照redis协议向服务器发送
+     * 指令报文, 并接收回应 */
     reply = redisCommand(context,"AUTH %s",config.auth);
     if (reply != NULL) {
         freeReplyObject(reply);
@@ -455,6 +457,7 @@ static int cliConnect(int force) {
             redisFree(context);
         }
 
+        /* 调用底层socket接口建立到服务器的连接 */
         if (config.hostsocket == NULL) {
             context = redisConnect(config.hostip,config.hostport);
         } else {
@@ -475,12 +478,13 @@ static int cliConnect(int force) {
         /* Set aggressive KEEP_ALIVE socket option in the Redis context socket
          * in order to prevent timeouts caused by the execution of long
          * commands. At the same time this improves the detection of real
-         * errors. */
+         * errors. 设置保活机制 */
         anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
 
-        /* Do AUTH and select the right DB. */
+        /* 认证, Do AUTH and select the right DB. */
         if (cliAuth() != REDIS_OK)
             return REDIS_ERR;
+        /* 并选择对应的数据库 */
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
     }
@@ -697,6 +701,7 @@ static int cliReadReply(int output_raw_strings) {
     sds out = NULL;
     int output = 1;
 
+    /* 获取服务器回应, _reply为root对象(结果对象树) */
     if (redisGetReply(context,&_reply) != REDIS_OK) {
         if (config.shutdown) {
             redisFree(context);
@@ -750,6 +755,7 @@ static int cliReadReply(int output_raw_strings) {
         cliRefreshPrompt();
     }
 
+    /* 输出结果 */
     if (output) {
         if (output_raw_strings) {
             out = cliFormatReplyRaw(reply);
@@ -767,15 +773,19 @@ static int cliReadReply(int output_raw_strings) {
         fwrite(out,sdslen(out),1,stdout);
         sdsfree(out);
     }
+
+    /* 释放对象内存 */
     freeReplyObject(reply);
     return REDIS_OK;
 }
 
+/* 客户端向服务器发送指令的主入口函数 */
 static int cliSendCommand(int argc, char **argv, int repeat) {
     char *command = argv[0];
     size_t *argvlen;
     int j, output_raw;
 
+    /* 处理help/?指令 */
     if (!config.eval_ldb && /* In debugging mode, let's pass "help" to Redis. */
         (!strcasecmp(command,"help") || !strcasecmp(command,"?"))) {
         cliOutputHelp(--argc, ++argv);
@@ -784,6 +794,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
 
     if (context == NULL) return REDIS_ERR;
 
+    /* 指令预处理 */
     output_raw = 0;
     if (!strcasecmp(command,"info") ||
         (argc >= 2 && !strcasecmp(command,"debug") &&
@@ -832,7 +843,9 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     for (j = 0; j < argc; j++)
         argvlen[j] = sdslen(argv[j]);
 
+    /* 构建指令集, 并等待结果 */
     while(repeat--) {
+        /* 翻译为redis协议, 并挂接到发送缓存(redisContext->obuf) */
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         while (config.monitor_mode) {
             if (cliReadReply(output_raw) != REDIS_OK) exit(1);
@@ -855,6 +868,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             return REDIS_ERR;  /* Error = slaveMode lost connection to master */
         }
 
+        /* 等待服务器响应, 并把结果输出 */
         if (cliReadReply(output_raw) != REDIS_OK) {
             free(argvlen);
             return REDIS_ERR;
@@ -919,6 +933,7 @@ static int parseOptions(int argc, char **argv) {
     for (i = 1; i < argc; i++) {
         int lastarg = i==argc-1;
 
+        /* -h不带参数===--help, 带参数则用来指定host名 */
         if (!strcmp(argv[i],"-h") && !lastarg) {
             sdsfree(config.hostip);
             config.hostip = sdsnew(argv[++i]);
@@ -1000,6 +1015,7 @@ static int parseOptions(int argc, char **argv) {
             sdsfree(version);
             exit(0);
         } else {
+            /* 除开支持的控制参数外, 后边紧跟着command */
             if (argv[i][0] == '-') {
                 fprintf(stderr,
                     "Unrecognized option or bad number of args for: '%s'\n",
@@ -1018,6 +1034,8 @@ static int parseOptions(int argc, char **argv) {
         fprintf(stderr,"Try %s --help for more information.\n", argv[0]);
         exit(1);
     }
+
+    /* 返回值为除开'-'控制参数外, 后续命令在argv[]中的起始索引 */
     return i;
 }
 
@@ -1203,6 +1221,7 @@ void cliLoadPreferences(void) {
     sdsfree(rcfile);
 }
 
+/* 命令式交互界面 */
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -1272,6 +1291,7 @@ static void repl(void) {
                         repeat = 1;
                     }
 
+                    /* 向服务器发送待执行的指令, 并打印返回结果到console */
                     issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
 
                     /* If our debugging session ended, show the EVAL final
@@ -1299,6 +1319,7 @@ static void repl(void) {
     exit(0);
 }
 
+/* 非交互方式直接执行命令集 */
 static int noninteractive(int argc, char **argv) {
     int retval = 0;
     if (config.stdinarg) {
@@ -2537,6 +2558,7 @@ int main(int argc, char **argv) {
     config.mb_delim = sdsnew("\n");
     cliInitHelp();
 
+    /* 解析以'-'开头的控制参数, 并返回command的起始索引(如果有的话) */
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
@@ -2599,7 +2621,7 @@ int main(int argc, char **argv) {
     /* Intrinsic latency mode */
     if (config.intrinsic_latency_mode) intrinsicLatencyMode();
 
-    /* Start interactive mode when no command is provided */
+    /* 命令行未指定command, 开启交互模式 */
     if (argc == 0 && !config.eval) {
         /* Ignore SIGPIPE in interactive mode to force a reconnect */
         signal(SIGPIPE, SIG_IGN);
@@ -2610,7 +2632,7 @@ int main(int argc, char **argv) {
         repl();
     }
 
-    /* Otherwise, we have some arguments to execute */
+    /* 执行通过cli传入的指令, 然后退出 */
     if (cliConnect(0) != REDIS_OK) exit(1);
     if (config.eval) {
         return evalMode(argc,argv);

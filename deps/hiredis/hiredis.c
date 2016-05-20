@@ -160,6 +160,7 @@ static void *createIntegerObject(const redisReadTask *task, long long value) {
 
     r->integer = value;
 
+    /* 构建树状对象层级关系 */
     if (task->parent) {
         parent = task->parent->obj;
         assert(parent->type == REDIS_REPLY_ARRAY);
@@ -352,12 +353,14 @@ static void moveToNextTask(redisReader *r) {
     }
 }
 
+/* 处理单行回复的情况, 包括+/-/:开头的情况 */
 static int processLineItem(redisReader *r) {
     redisReadTask *cur = &(r->rstack[r->ridx]);
     void *obj;
     char *p;
     int len;
 
+    /* 读取行 */
     if ((p = readLine(r,&len)) != NULL) {
         if (cur->type == REDIS_REPLY_INTEGER) {
             if (r->fn && r->fn->createInteger)
@@ -386,6 +389,7 @@ static int processLineItem(redisReader *r) {
     return REDIS_ERR;
 }
 
+/* 处理字符串的返回形式, $ */
 static int processBulkItem(redisReader *r) {
     redisReadTask *cur = &(r->rstack[r->ridx]);
     void *obj = NULL;
@@ -401,6 +405,7 @@ static int processBulkItem(redisReader *r) {
         bytelen = s-(r->buf+r->pos)+2; /* include \r\n */
         len = readLongLong(p);
 
+        /* $-n的情形, 创建空对象 */
         if (len < 0) {
             /* The nil object can always be created. */
             if (r->fn && r->fn->createNil)
@@ -408,6 +413,7 @@ static int processBulkItem(redisReader *r) {
             else
                 obj = (void*)REDIS_REPLY_NIL;
             success = 1;
+        /* $n的情形, 创建字符串对象 */
         } else {
             /* Only continue when the buffer contains the entire bulk item. */
             bytelen += len+2; /* include \r\n */
@@ -439,6 +445,7 @@ static int processBulkItem(redisReader *r) {
     return REDIS_ERR;
 }
 
+/* 处理多数据块儿返回的情形, *开头 */
 static int processMultiBulkItem(redisReader *r) {
     redisReadTask *cur = &(r->rstack[r->ridx]);
     void *obj;
@@ -457,6 +464,7 @@ static int processMultiBulkItem(redisReader *r) {
         elements = readLongLong(p);
         root = (r->ridx == 0);
 
+        /* 无数据块儿, *-n的情形 */
         if (elements == -1) {
             if (r->fn && r->fn->createNil)
                 obj = r->fn->createNil(cur);
@@ -469,6 +477,7 @@ static int processMultiBulkItem(redisReader *r) {
             }
 
             moveToNextTask(r);
+        /* 多个数据块儿, *n的情形 */
         } else {
             if (r->fn && r->fn->createArray)
                 obj = r->fn->createArray(cur,elements);
@@ -484,7 +493,7 @@ static int processMultiBulkItem(redisReader *r) {
             if (elements > 0) {
                 cur->elements = elements;
                 cur->obj = obj;
-                r->ridx++;
+                r->ridx++;          /* 增加任务层级 */
                 r->rstack[r->ridx].type = -1;
                 r->rstack[r->ridx].elements = -1;
                 r->rstack[r->ridx].idx = 0;
@@ -510,6 +519,7 @@ static int processItem(redisReader *r) {
 
     /* check if we need to read type */
     if (cur->type < 0) {
+        /* 初始解析时, 确定数据块儿类型 */
         if ((p = readBytes(r,1)) != NULL) {
             switch (p[0]) {
             case '-':
@@ -542,11 +552,11 @@ static int processItem(redisReader *r) {
     case REDIS_REPLY_ERROR:
     case REDIS_REPLY_STATUS:
     case REDIS_REPLY_INTEGER:
-        return processLineItem(r);
+        return processLineItem(r);      /* 简单单行回复信息解析 */
     case REDIS_REPLY_STRING:
-        return processBulkItem(r);
+        return processBulkItem(r);      /* 单数据块儿, 字符串回复解析 */
     case REDIS_REPLY_ARRAY:
-        return processMultiBulkItem(r);
+        return processMultiBulkItem(r); /* 多数据块儿, 数组回复解析 */
     default:
         assert(NULL);
         return REDIS_ERR; /* Avoid warning. */
@@ -627,7 +637,7 @@ int redisReaderGetReply(redisReader *r, void **reply) {
     if (r->len == 0)
         return REDIS_OK;
 
-    /* Set first item to process when the stack is empty. */
+    /* 环境初始化, Set first item to process when the stack is empty. */
     if (r->ridx == -1) {
         r->rstack[0].type = -1;
         r->rstack[0].elements = -1;
@@ -638,7 +648,7 @@ int redisReaderGetReply(redisReader *r, void **reply) {
         r->ridx = 0;
     }
 
-    /* Process items in reply. */
+    /* 按照redis协议解析服务器的回应数据, 参考redis_protocol.brief */
     while (r->ridx >= 0)
         if (processItem(r) != REDIS_OK)
             break;
@@ -648,7 +658,9 @@ int redisReaderGetReply(redisReader *r, void **reply) {
         return REDIS_ERR;
 
     /* Discard part of the buffer when we've consumed at least 1k, to avoid
-     * doing unnecessary calls to memmove() in sds.c. */
+     * doing unnecessary calls to memmove() in sds.c. 
+     * 利用memmove, 调整redisReader->buf的内存, >=1024的条件限制了调用的
+     * 频率, 避免过多无用的memmove */
     if (r->pos >= 1024) {
         sdsrange(r->buf,r->pos,-1);
         r->pos = 0;
@@ -703,8 +715,12 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
     if (curarg == NULL)
         return -1;
 
+    /* 把printf类似的参变量拼接为一个字符串, 记录到curarg, 并利用指针
+     * 记录每个参变量的起始位置 */
     while(*c != '\0') {
+        /* 处理非转义命令字符串, 或结尾的情况 */
         if (*c != '%' || c[1] == '\0') {
+            /* 遇到分隔符, 利用指针记录 */
             if (*c == ' ') {
                 if (touched) {
                     newargv = realloc(curargv,sizeof(char*)*(argc+1));
@@ -718,12 +734,14 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     if (curarg == NULL) goto err;
                     touched = 0;
                 }
+            /* 拼接普通字符 */
             } else {
                 newarg = sdscatlen(curarg,c,1);
                 if (newarg == NULL) goto err;
                 curarg = newarg;
                 touched = 1;
             }
+        /* 处理转义命令字符串(%s) */
         } else {
             char *arg;
             size_t size;
@@ -732,24 +750,25 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
             newarg = curarg;
 
             switch(c[1]) {
-            case 's':
+            case 's':       /* 普通c字符串(以\0结尾) */
                 arg = va_arg(ap,char*);
                 size = strlen(arg);
                 if (size > 0)
                     newarg = sdscatlen(curarg,arg,size);
                 break;
-            case 'b':
+            case 'b':       /* 二进制安全的字符串 */
                 arg = va_arg(ap,char*);
                 size = va_arg(ap,size_t);
                 if (size > 0)
                     newarg = sdscatlen(curarg,arg,size);
                 break;
-            case '%':
+            case '%':       /* 特殊字符%(转义字符本身) */
                 newarg = sdscat(curarg,"%");
                 break;
             default:
                 /* Try to detect printf format */
                 {
+                    /* 处理整数类型 */
                     static const char intfmts[] = "diouxX";
                     char _format[16];
                     const char *_p = c+1;
@@ -781,13 +800,13 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                         goto fmt_valid;
                     }
 
-                    /* Double conversion (without modifiers) */
+                    /* 处理浮点类型, Double conversion (without modifiers) */
                     if (strchr("eEfFgGaA",*_p) != NULL) {
                         va_arg(ap,double);
                         goto fmt_valid;
                     }
 
-                    /* Size: char */
+                    /* %hh ==> Size: char */
                     if (_p[0] == 'h' && _p[1] == 'h') {
                         _p += 2;
                         if (*_p != '\0' && strchr(intfmts,*_p) != NULL) {
@@ -797,7 +816,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                         goto fmt_invalid;
                     }
 
-                    /* Size: short */
+                    /* %hh ==> Size: short */
                     if (_p[0] == 'h') {
                         _p += 1;
                         if (*_p != '\0' && strchr(intfmts,*_p) != NULL) {
@@ -807,7 +826,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                         goto fmt_invalid;
                     }
 
-                    /* Size: long long */
+                    /* %hh ==> Size: long long */
                     if (_p[0] == 'l' && _p[1] == 'l') {
                         _p += 2;
                         if (*_p != '\0' && strchr(intfmts,*_p) != NULL) {
@@ -817,7 +836,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                         goto fmt_invalid;
                     }
 
-                    /* Size: long */
+                    /* %hh ==> Size: long */
                     if (_p[0] == 'l') {
                         _p += 1;
                         if (*_p != '\0' && strchr(intfmts,*_p) != NULL) {
@@ -857,7 +876,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
         c++;
     }
 
-    /* Add the last argument if needed */
+    /* 处理解析字符串结尾的情况, Add the last argument if needed */
     if (touched) {
         newargv = realloc(curargv,sizeof(char*)*(argc+1));
         if (newargv == NULL) goto err;
@@ -878,6 +897,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
     cmd = malloc(totlen+1);
     if (cmd == NULL) goto err;
 
+    /* 按照redis协议拼装TCP payload */
     pos = sprintf(cmd,"*%d\r\n",argc);
     for (j = 0; j < argc; j++) {
         pos += sprintf(cmd+pos,"$%zu\r\n",sdslen(curargv[j]));
@@ -1139,6 +1159,7 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
+    /* 读取数据 */
     nread = read(c->fd,buf,sizeof(buf));
     if (nread == -1) {
         if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
@@ -1151,6 +1172,7 @@ int redisBufferRead(redisContext *c) {
         __redisSetError(c,REDIS_ERR_EOF,"Server closed the connection");
         return REDIS_ERR;
     } else {
+        /* 存储到redisContext->reader->buf中 */
         if (redisReaderFeed(c->reader,buf,nread) != REDIS_OK) {
             __redisSetError(c,c->reader->err,c->reader->errstr);
             return REDIS_ERR;
@@ -1217,22 +1239,24 @@ int redisGetReply(redisContext *c, void **reply) {
 
     /* For the blocking context, flush output buffer and read reply */
     if (aux == NULL && c->flags & REDIS_BLOCK) {
-        /* Write until done */
+        /* 调用write(), 输出发送缓存(c->obuf)到插口(c->fd), 完成
+         * 指令发送任务 */
         do {
             if (redisBufferWrite(c,&wdone) == REDIS_ERR)
                 return REDIS_ERR;
         } while (!wdone);
 
-        /* Read until there is a reply */
         do {
+            /* 调用read()读取服务器响应, 暂存在c->reader->buf */
             if (redisBufferRead(c) == REDIS_ERR)
                 return REDIS_ERR;
+            /* 解析redis协议 */
             if (redisGetReplyFromReader(c,&aux) == REDIS_ERR)
                 return REDIS_ERR;
         } while (aux == NULL);
     }
 
-    /* Set reply object */
+    /* 设置解析结果的root对象指针, Set reply object */
     if (reply != NULL) *reply = aux;
     return REDIS_OK;
 }
@@ -1270,12 +1294,14 @@ int redisvAppendCommand(redisContext *c, const char *format, va_list ap) {
     char *cmd;
     int len;
 
+    /* 按照redis协议构造命令, 参考redis_protocol.brief */
     len = redisvFormatCommand(&cmd,format,ap);
     if (len == -1) {
         __redisSetError(c,REDIS_ERR_OOM,"Out of memory");
         return REDIS_ERR;
     }
 
+    /* 挂接到c->obuf输出缓存 */
     if (__redisAppendCommand(c,cmd,len) != REDIS_OK) {
         free(cmd);
         return REDIS_ERR;
@@ -1337,8 +1363,10 @@ static void *__redisBlockForReply(redisContext *c) {
 }
 
 void *redisvCommand(redisContext *c, const char *format, va_list ap) {
+    /* 向服务器发送指令 */
     if (redisvAppendCommand(c,format,ap) != REDIS_OK)
         return NULL;
+    /* 阻塞等待回应 */
     return __redisBlockForReply(c);
 }
 
