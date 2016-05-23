@@ -929,6 +929,11 @@ int hex_digit_to_int(char c) {
  * input string is empty, or NULL if the input contains unbalanced
  * quotes or closed quotes followed by non space characters
  * as in: "foo"bar or "foo'
+ *
+ * 拆分客户端输入的指令
+ * 1) \r | \n | \0 | \t | 空格, 作为token的分隔符
+ * 2) token中如果包含分隔符, 则利用双引号或单引号分隔
+ * 3) 支持转义符号\
  */
 sds *sdssplitargs(const char *line, int *argc) {
     const char *p = line;

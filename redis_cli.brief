@@ -24,6 +24,17 @@
         --issueCommandRepeat()
 
 
+命令行交互优化
+--------------
+引入第三方开源实现, linenoise, 实现命令行补齐/命令行提示/命令行历史等功能
+
+https://github.com/antirez/linenoise
 
 
+CLI用户偏好
+-----------
+有两种方式设置CLI偏好,
+    1) 命令行, :command
+    2) 配置文件, ${HOME}/.redisclirc
 
+目前仅支持 :set hints/nohints

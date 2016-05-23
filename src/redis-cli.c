@@ -79,13 +79,13 @@ int spectrum_palette_size;
 
 static redisContext *context;
 static struct config {
-    char *hostip;                       /*待连接服务器的地址*/
-    int hostport;                       /*待连接服务器的端口*/
-    char *hostsocket;                   /*unix socket管道名*/
+    char *hostip;                       /* 待连接服务器的地址 */
+    int hostport;                       /* 待连接服务器的端口 */
+    char *hostsocket;                   /* unix socket管道名 */
     long repeat;
     long interval;
-    int dbnum;
-    int interactive;
+    int dbnum;                          /* 连接的数据库 */
+    int interactive;                    /* 是否为命令行交互模式 */
     int shutdown;
     int monitor_mode;
     int pubsub_mode;
@@ -111,7 +111,7 @@ static struct config {
     char *auth;
     int output; /* output mode, see OUTPUT_* defines */
     sds mb_delim;
-    char prompt[128];
+    char prompt[128];                   /* 命令行交互的提示符 */
     char *eval;
     int eval_ldb;
     int eval_ldb_sync;  /* Ask for synchronous mode of the Lua debugger. */
@@ -122,7 +122,7 @@ static struct config {
 
 /* User preferences. */
 static struct pref {
-    int hints;
+    int hints;                          /* 交互模式是否开启命令行参数提醒 */
 } pref;
 
 static volatile sig_atomic_t force_cancel_loop = 0;
@@ -153,16 +153,18 @@ static void cliRefreshPrompt(void) {
     int len;
 
     if (config.eval_ldb) return;
+    /* 生成提示符, [ipv6]:port 或者 ipv4:port */
     if (config.hostsocket != NULL)
         len = snprintf(config.prompt,sizeof(config.prompt),"redis %s",
                        config.hostsocket);
     else
         len = anetFormatAddr(config.prompt, sizeof(config.prompt),
                            config.hostip, config.hostport);
-    /* Add [dbnum] if needed */
+    /* 如果连接的数据库不为0, 添加数据库索引, ipv4:port[dbnum] */
     if (config.dbnum != 0 && config.last_cmd_type != REDIS_REPLY_ERROR)
         len += snprintf(config.prompt+len,sizeof(config.prompt)-len,"[%d]",
             config.dbnum);
+    /* 添加>, 最终形式: ipv4:port[dbnum]> */
     snprintf(config.prompt+len,sizeof(config.prompt)-len,"> ");
 }
 
@@ -173,7 +175,10 @@ static void cliRefreshPrompt(void) {
  *
  * The function returns NULL (if the file is /dev/null or cannot be
  * obtained for some error), or an SDS string that must be freed by
- * the user. */
+ * the user. 
+ * 获取完整的文件路径, 两种方式 
+ * 1)通过环境变量: 由第一个参数指定
+ * 2)默认路径: ${HOME}/ */
 static sds getDotfilePath(char *envoverride, char *dotfilename) {
     char *path = NULL;
     sds dotPath = NULL;
@@ -205,16 +210,18 @@ static sds getDotfilePath(char *envoverride, char *dotfilename) {
 #define CLI_HELP_GROUP 2
 
 typedef struct {
-    int type;
-    int argc;
-    sds *argv;
-    sds full;
+    int type;           /* 命令类型, 组/普通命令, 
+                           CLI_HELP_GROUP/CLI_HELP_COMMAND */
+    int argc;           /* 命令名token个数 */
+    sds *argv;          /* 命令名token */
+    sds full;           /* 命令名字符串 */
 
     /* Only used for help on commands */
     struct commandHelp *org;
+                        /* 原始信息, ~/src/help.h */
 } helpEntry;
 
-static helpEntry *helpEntries;
+static helpEntry *helpEntries;  /* 支持的命令行信息, 用于linenoise */
 static int helpEntriesLen;
 
 static sds cliVersion(void) {
@@ -231,7 +238,10 @@ static sds cliVersion(void) {
     return version;
 }
 
+/* 生成helpEntries, 用于linenoise库所需的信息 */
 static void cliInitHelp(void) {
+    /* commandHelp[]/commandGroups[]定义在~/src/help.h, 
+     * 由generate-command-help.rb自动生成 */
     int commandslen = sizeof(commandHelp)/sizeof(struct commandHelp);
     int groupslen = sizeof(commandGroups)/sizeof(char*);
     int i, len, pos = 0;
@@ -269,7 +279,7 @@ static void cliOutputCommandHelp(struct commandHelp *help, int group) {
     }
 }
 
-/* Print generic help. */
+/* 通用帮助信息, Print generic help. */
 static void cliOutputGenericHelp(void) {
     sds version = cliVersion();
     printf(
@@ -334,7 +344,8 @@ static void cliOutputHelp(int argc, char **argv) {
     printf("\r\n");
 }
 
-/* Linenoise completion callback. */
+/* Linenoise completion callback. 
+ * 命令行补齐回调 */
 static void completionCallback(const char *buf, linenoiseCompletions *lc) {
     size_t startpos = 0;
     int mask;
@@ -363,8 +374,10 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
     }
 }
 
-/* Linenoise hints callback. */
+/* Linenoise hints callback. 
+ * 命令行提示回调 */
 static char *hintsCallback(const char *buf, int *color, int *bold) {
+    /* 未开启命令提醒, 直接返回 */
     if (!pref.hints) return NULL;
 
     int i, argc, buflen = strlen(buf);
@@ -1167,6 +1180,7 @@ static int issueCommand(int argc, char **argv) {
  * the remaining Lua script (after "e " or "eval ") to be passed verbatim
  * as a single big argument. */
 static sds *cliSplitArgs(char *line, int *argc) {
+    /* lua环境命令不需要分隔, 作为整体传递 */
     if (config.eval_ldb && (strstr(line,"eval ") == line ||
                             strstr(line,"e ") == line))
     {
@@ -1177,6 +1191,7 @@ static sds *cliSplitArgs(char *line, int *argc) {
         argv[0] = sdsnewlen(line,elen-1);
         argv[1] = sdsnewlen(line+elen,len-elen);
         return argv;
+    /* 利用分隔符分割指令为独立的token */
     } else {
         return sdssplitargs(line,argc);
     }
@@ -1184,8 +1199,12 @@ static sds *cliSplitArgs(char *line, int *argc) {
 
 /* Set the CLI perferences. This function is invoked when an interactive
  * ":command" is called, or when reading ~/.redisclirc file, in order to
- * set user preferences. */
+ * set user preferences. 
+ * CLI选项设置, 有两种调用方式:
+ * 1) 命令行, ":command"
+ * 2) 配置文件, ".redisclirc" */
 void cliSetPreferences(char **argv, int argc, int interactive) {
+    /* 处理命令行":set hints/nohints" */
     if (!strcasecmp(argv[0],":set") && argc >= 2) {
         if (!strcasecmp(argv[1],"hints")) pref.hints = 1;
         else if (!strcasecmp(argv[1],"nohints")) pref.hints = 0;
@@ -1203,12 +1222,15 @@ void cliSetPreferences(char **argv, int argc, int interactive) {
 
 /* Load the ~/.redisclirc file if any. */
 void cliLoadPreferences(void) {
+    /* CLI配置文件可由环境变量"REDISCLI_RCFILE"指定, 
+     * 默认为"${HOME}/.redisclirc" */
     sds rcfile = getDotfilePath(REDIS_CLI_RCFILE_ENV,REDIS_CLI_RCFILE_DEFAULT);
     if (rcfile == NULL) return;
     FILE *fp = fopen(rcfile,"r");
     char buf[1024];
 
     if (fp) {
+        /* 逐行读取, 并配置 */
         while(fgets(buf,sizeof(buf),fp) != NULL) {
             sds *argv;
             int argc;
@@ -1229,26 +1251,34 @@ static void repl(void) {
     int argc;
     sds *argv;
 
+    /* 参考~/deps/linenoise/linenoise.c(开源linenoise), 设置命令行操控 */
     config.interactive = 1;
-    linenoiseSetMultiLine(1);
-    linenoiseSetCompletionCallback(completionCallback);
-    linenoiseSetHintsCallback(hintsCallback);
-    linenoiseSetFreeHintsCallback(freeHintsCallback);
+    linenoiseSetMultiLine(1);                           /* 多行模式 */
+    linenoiseSetCompletionCallback(completionCallback); /* 命令行补齐 */
+    linenoiseSetHintsCallback(hintsCallback);           /* 命令行提示 */
+    linenoiseSetFreeHintsCallback(freeHintsCallback);   /* 销毁提示字符串 */
 
-    /* Only use history and load the rc file when stdin is a tty. */
+    /* 仅在tty命令行载入历史指令回滚支持, 
+     * Only use history and load the rc file when stdin is a tty. */
     if (isatty(fileno(stdin))) {
+        /* 设置历史指令暂存文件, 默认"${HOME}/.rediscli_history" */
         historyfile = getDotfilePath(REDIS_CLI_HISTFILE_ENV,REDIS_CLI_HISTFILE_DEFAULT);
         if (historyfile != NULL) {
             history = 1;
             linenoiseHistoryLoad(historyfile);
         }
+        /* 读取并配置用户的CLI偏好 */
         cliLoadPreferences();
     }
 
+    /* 生成命令行交互的提示符号 */
     cliRefreshPrompt();
+    /* 获取命令行输入 */
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
+            /* 拆分指令 */
             argv = cliSplitArgs(line,&argc);
+            /* 记录以支持历史指令回滚 */
             if (history) linenoiseHistoryAdd(line);
             if (historyfile) linenoiseHistorySave(historyfile);
 
@@ -1257,13 +1287,16 @@ static void repl(void) {
                 free(line);
                 continue;
             } else if (argc > 0) {
+                /* 退出客户端, 指令quit/exit */
                 if (strcasecmp(argv[0],"quit") == 0 ||
                     strcasecmp(argv[0],"exit") == 0)
                 {
                     exit(0);
+                /* 用于CLI偏好指令, 目前支持":set hints/nohints" */
                 } else if (argv[0][0] == ':') {
                     cliSetPreferences(argv,argc,1);
                     continue;
+                /* 重启lua环境 */
                 } else if (strcasecmp(argv[0],"restart") == 0) {
                     if (config.eval) {
                         config.eval_ldb = 1;
@@ -1272,14 +1305,17 @@ static void repl(void) {
                     } else {
                         printf("Use 'restart' only in Lua debugging mode.");
                     }
+                /* 连接服务器, connect hostip hostport */
                 } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
                     sdsfree(config.hostip);
                     config.hostip = sdsnew(argv[1]);
                     config.hostport = atoi(argv[2]);
                     cliRefreshPrompt();
                     cliConnect(1);
+                /* 清除当前终端输出, clear */
                 } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                     linenoiseClearScreen();
+                /* 其他指令 */
                 } else {
                     long long start_time = mstime(), elapsed;
                     int repeat, skipargs = 0;
@@ -2556,6 +2592,7 @@ int main(int argc, char **argv) {
     else
         config.output = OUTPUT_STANDARD;
     config.mb_delim = sdsnew("\n");
+    /* 初始化命令行提示/补全所需要的信息 */
     cliInitHelp();
 
     /* 解析以'-'开头的控制参数, 并返回command的起始索引(如果有的话) */
@@ -2635,8 +2672,10 @@ int main(int argc, char **argv) {
     /* 执行通过cli传入的指令, 然后退出 */
     if (cliConnect(0) != REDIS_OK) exit(1);
     if (config.eval) {
+        /* Lua脚本模式 */
         return evalMode(argc,argv);
     } else {
+        /* 简单命令行模式 */
         return noninteractive(argc,convertToSds(argc,argv));
     }
 }
