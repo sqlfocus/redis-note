@@ -2347,6 +2347,7 @@ int processCommand(client *c) {
     /* 查找对应的注册指令 */
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
+        /* 如果入队事务指令出错, 则设置标识 */
         flagTransaction(c);
         addReplyErrorFormat(c,"unknown command '%s'",
             (char*)c->argv[0]->ptr);
@@ -2507,6 +2508,7 @@ int processCommand(client *c) {
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
     {
+        /* 事务指令入队 */
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {

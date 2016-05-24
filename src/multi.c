@@ -52,7 +52,7 @@ void freeClientMultiState(client *c) {
     zfree(c->mstate.commands);
 }
 
-/* Add a new command into the MULTI commands queue */
+/* 事务指令入队, Add a new command into the MULTI commands queue */
 void queueMultiCommand(client *c) {
     multiCmd *mc;
     int j;
@@ -70,24 +70,33 @@ void queueMultiCommand(client *c) {
 }
 
 void discardTransaction(client *c) {
+    /* 释放动态内存 */
     freeClientMultiState(c);
+    /* 重新初始化 事务状态 */
     initClientMultiState(c);
+    /* 去除事务标识 */
     c->flags &= ~(CLIENT_MULTI|CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC);
+    /* 释放所有WATCH的键 */
     unwatchAllKeys(c);
 }
 
 /* Flag the transacation as DIRTY_EXEC so that EXEC will fail.
- * Should be called every time there is an error while queueing a command. */
+ * Should be called every time there is an error while queueing a command. 
+ * 
+ * 入队事务指令时出错, 则设置此标识 */
 void flagTransaction(client *c) {
     if (c->flags & CLIENT_MULTI)
         c->flags |= CLIENT_DIRTY_EXEC;
 }
 
+/* 事务起始指令multi的执行函数 */
 void multiCommand(client *c) {
+    /* 事务不能嵌套 */
     if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"MULTI calls can not be nested");
         return;
     }
+    /* 设置标识 */
     c->flags |= CLIENT_MULTI;
     addReply(c,shared.ok);
 }
@@ -111,6 +120,7 @@ void execCommandPropagateMulti(client *c) {
     decrRefCount(multistring);
 }
 
+/* 对应事务指令exec, 执行已经设置的事务指令 */
 void execCommand(client *c) {
     int j;
     robj **orig_argv;
@@ -128,20 +138,24 @@ void execCommand(client *c) {
      * 2) There was a previous error while queueing commands.
      * A failed EXEC in the first case returns a multi bulk nil object
      * (technically it is not an error but a special behavior), while
-     * in the second an EXECABORT error is returned. */
+     * in the second an EXECABORT error is returned. 
+     *
+     * 检查是否需要放弃事务指令集
+     * 1) 触发了一些WATCH的键
+     * 2) 存储事务指令时发生了错误 */
     if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC)) {
         addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr :
                                                   shared.nullmultibulk);
-        discardTransaction(c);
+        discardTransaction(c);      /* 放弃事务 */
         goto handle_monitor;
     }
 
-    /* Exec all the queued commands */
-    unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
+    /* 逐个执行所有的事务指令集, Exec all the queued commands */
+    unwatchAllKeys(c);      /* 执行事务前释放监控的键 */
     orig_argv = c->argv;
     orig_argc = c->argc;
     orig_cmd = c->cmd;
-    addReplyMultiBulkLen(c,c->mstate.count);
+    addReplyMultiBulkLen(c,c->mstate.count);        /* 多应答块儿个数 */
     for (j = 0; j < c->mstate.count; j++) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
@@ -156,6 +170,7 @@ void execCommand(client *c) {
             must_propagate = 1;
         }
 
+        /* 执行事务指令 */
         call(c,CMD_CALL_FULL);
 
         /* Commands may alter argc/argv, restore mstate. */
@@ -176,7 +191,10 @@ handle_monitor:
      * since the natural order of commands execution is actually:
      * MUTLI, EXEC, ... commands inside transaction ...
      * Instead EXEC is flagged as CMD_SKIP_MONITOR in the command
-     * table, and we do it here with correct ordering. */
+     * table, and we do it here with correct ordering. 
+     *
+     * 向监控客户端发送执行的指令, 因为multi和exec之间的部分仅仅暂存指令,
+     * 而没有执行, 因此此处补发指令的执行 */
     if (listLength(server.monitors) && !server.loading)
         replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 }
@@ -194,26 +212,27 @@ handle_monitor:
  * as in order to identify a key in Redis we need both the key name and the
  * DB */
 typedef struct watchedKey {
-    robj *key;
-    redisDb *db;
+    robj *key;          /* 待监控的键 */
+    redisDb *db;        /* 事务乐观锁键表=db->watched_keys */
 } watchedKey;
 
-/* Watch for the specified key */
+/* 监控指定的键, Watch for the specified key */
 void watchForKey(client *c, robj *key) {
     list *clients = NULL;
     listIter li;
     listNode *ln;
     watchedKey *wk;
 
-    /* Check if we are already watching for this key */
+    /* 已经监控了???(相同数据库 && 相同的键) */
     listRewind(c->watched_keys,&li);
     while((ln = listNext(&li))) {
         wk = listNodeValue(ln);
         if (wk->db == c->db && equalStringObjects(key,wk->key))
             return; /* Key already watched */
     }
-    /* This key is not already watched in this DB. Let's add it */
+    /* 添加到监控链表client->watched_keys */
     clients = dictFetchValue(c->db->watched_keys,key);
+    /* This key is not already watched in this DB. Let's add it */
     if (!clients) {
         clients = listCreate();
         dictAdd(c->db->watched_keys,key,clients);
@@ -229,11 +248,14 @@ void watchForKey(client *c, robj *key) {
 }
 
 /* Unwatch all the keys watched by this client. To clean the EXEC dirty
- * flag is up to the caller. */
+ * flag is up to the caller. 
+ *
+ * 清空WATCH的键, 而清空EXEC脏标识的任务由调用者完成 */
 void unwatchAllKeys(client *c) {
     listIter li;
     listNode *ln;
 
+    /* 释放监控的键 */
     if (listLength(c->watched_keys) == 0) return;
     listRewind(c->watched_keys,&li);
     while((ln = listNext(&li))) {
@@ -257,7 +279,10 @@ void unwatchAllKeys(client *c) {
 }
 
 /* "Touch" a key, so that if this key is being WATCHed by some client the
- * next EXEC will fail. */
+ * next EXEC will fail. 
+ *
+ * 检测是否修正了 监控键, 如果修正了则设置标识, 以便后续事务执行时,
+ * 报错*/
 void touchWatchedKey(redisDb *db, robj *key) {
     list *clients;
     listIter li;
@@ -307,12 +332,15 @@ void touchWatchedKeysOnFlush(int dbid) {
 void watchCommand(client *c) {
     int j;
 
+    /* 必须在multi+exec外围执行 */
     if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"WATCH inside MULTI is not allowed");
         return;
     }
+    /* 添加监控键 */
     for (j = 1; j < c->argc; j++)
         watchForKey(c,c->argv[j]);
+    /* 回应客户端 */
     addReply(c,shared.ok);
 }
 

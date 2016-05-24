@@ -498,11 +498,11 @@ struct evictionPoolEntry {
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
-    dict *dict;                 /* The keyspace for this DB */
+    dict *dict;                 /* 数据库的键空间 */
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
     dict *ready_keys;           /* Blocked keys that received a PUSH */
-    dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
+    dict *watched_keys;         /* 事务乐观锁监控的键 */
     struct evictionPoolEntry *eviction_pool;    /* Eviction pool of keys */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
@@ -510,14 +510,14 @@ typedef struct redisDb {
 
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
-    robj **argv;
-    int argc;
-    struct redisCommand *cmd;
+    robj **argv;            /* 命令参数 */
+    int argc;               /* ->argv[]大小 */
+    struct redisCommand *cmd;   /* 指令 */
 } multiCmd;
 
 typedef struct multiState {
-    multiCmd *commands;     /* Array of MULTI commands */
-    int count;              /* Total number of MULTI commands */
+    multiCmd *commands;     /* 事务的指令数组 */
+    int count;              /* ->commands[]大小 */
     int minreplicas;        /* MINREPLICAS for synchronous replication */
     time_t minreplicas_timeout; /* MINREPLICAS timeout as unixtime. */
 } multiState;
@@ -561,7 +561,7 @@ typedef struct readyList {
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     int fd;                 /* Client socket. */
-    redisDb *db;            /* Pointer to currently SELECTed DB. */
+    redisDb *db;            /* 当前操控的数据库, 默认为0 */
     int dictid;             /* ID of the currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
     sds querybuf;           /* Buffer we use to accumulate client queries. */
@@ -583,7 +583,10 @@ typedef struct client {
     int flags;              /* 客户端标识: CLIENT_*, 
                                如 CLIENT_PUBSUB, 发布者/订阅者模式 
                                   CLIENT_SLAVE, 从模式 
-                                  CLIENT_MONITOR, 监控者模式*/
+                                  CLIENT_MONITOR, 监控者模式
+                                  CLIENT_MULTI, 事务标识 
+                                  CLIENT_DIRTY_CAS, WATCH事件触发的脏
+                                  CLIENT_DIRTY_EXEC, 事务指令有格式错误等 */
     int authenticated;      /* When requirepass is non-NULL. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
@@ -600,11 +603,11 @@ typedef struct client {
     char replrunid[CONFIG_RUN_ID_SIZE+1]; /* Master run id if is a master. */
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
-    multiState mstate;      /* MULTI/EXEC state */
+    multiState mstate;      /* 事务指令队列 */
     int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
     blockingState bpop;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
-    list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
+    list *watched_keys;     /* 事务乐观锁, 对应指令WATCH的键 */
     dict *pubsub_channels;  /* 客户端订阅的频道集(命令SUBSCRIBE) */
     list *pubsub_patterns;  /* 客户端订阅的模式集(命令PSUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */

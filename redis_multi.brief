@@ -1,0 +1,72 @@
+本文档描述redis的事务处理流程, 设计指令multi/exec/watch等.
+
+<NOTE>
+    1) 事务不允许嵌套
+    2) watch指令必须在multi+exec外围执行
+
+客户端处理流程
+--------------
+和普通指令一般不二
+
+
+
+watchCommand()
+--------------
+本函数对应服务器端指令watch的处理流程, 开启事务乐观锁,
+监控相应的键
+
+--watchForKey()                                     src/multi.c
+    --dictAdd(client->db->watched_keys,,)
+    --listAddNodeTail(client->watched_keys,)
+--addReply()
+
+
+
+multiCommand()
+--------------
+本函数对应服务器端指令multi的处理流程, 标识事务开始, 
+仅仅简单设置标识就返回
+
+--设置client->flags |= CLIENT_MULTI
+--addReply(,shared.ok)                              src/multi.c
+
+
+
+execCommand()
+-------------
+本函数对应服务器端指令exec的处理流程, 执行设置的事务指令
+--unwatchAllKeys()                                  src/multi.c
+--addReplyMultiBulkLen()
+--while()
+    --call(c,CMD_CALL_FULL)                         src/server.c
+--discardTransaction()
+    --freeClientMultiState()
+    --initClientMultiState()
+    --清理client->flags中的事务标识
+    --unwatchAllKeys()
+--replicationFeedMonitors()                         src/replication.c
+
+
+
+multi+exec之间的普通指令服务器端处理
+------------------------------------
+--processInputBuffer()                              src/networking.c
+    --processCommand()                              src/server.c
+        --flagTransaction()                         src/multi.c
+            --设置client->flags |= CLIENT_DIRTY_EXEC
+        --queueMultiCommand()
+            --zmalloc()
+            --memcpy()
+        --addReply(,shared.queued)
+
+
+
+监控键的处理流程
+-----------------
+--delCommand/renameGenericCommand/expireGenericCommand/setKey()
+    --signalModifiedKey()                           src/db.c
+        --touchWatchedKey()                         src/multi.c
+            --设置client->flags |= CLIENT_DIRTY_CAS
+
+
+
