@@ -1,0 +1,35 @@
+本文档摘录redis的monitor客户端工作流程.
+
+
+客户端monitor命令流程
+---------------------
+--main()                                        src/redis-cli.c
+    --repl()
+        --issueCommandRepeat()
+            --cliSendCommand()
+                --redisAppendCommandArgv()
+                --while (config.monitor_mode)   命令行不再接受输入
+                    --cliReadReply()            不停吐服务器端的输出
+
+
+服务器端注册流程
+----------------
+参考redis_command.brief, 命令及对应的执行函数由静态数组
+redisCommandTable[]决定.
+
+--monitorCommand()                              src/server.c
+    --listAddNodeTail(redisServer.monitors, )
+
+
+服务器端处理流程
+----------------
+参考redis_command.brief, 服务器端通过epoll监控客户端指令输入, 通过
+read()读取输入后, 作为命令处理的入口点(readQueryFromClient())的参数.
+
+--readQueryFromClient()                         src/networking.c
+    --processInputBuffer()
+        --processCommand()                      src/server.c
+            --call()
+                --replicationFeedMonitors()     src/replication.c
+                    --重新打包命令发送
+

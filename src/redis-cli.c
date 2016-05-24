@@ -828,6 +828,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     }
 
     if (!strcasecmp(command,"shutdown")) config.shutdown = 1;
+    /* 监控器模式 */
     if (!strcasecmp(command,"monitor")) config.monitor_mode = 1;
     /* 开启发布者订阅模式 */
     if (!strcasecmp(command,"subscribe") ||

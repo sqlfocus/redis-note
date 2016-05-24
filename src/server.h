@@ -581,7 +581,9 @@ typedef struct client {
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
     int flags;              /* 客户端标识: CLIENT_*, 
-                               如 CLIENT_PUBSUB, 发布者/订阅者模式 */
+                               如 CLIENT_PUBSUB, 发布者/订阅者模式 
+                                  CLIENT_SLAVE, 从模式 
+                                  CLIENT_MONITOR, 监控者模式*/
     int authenticated;      /* When requirepass is non-NULL. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
@@ -734,7 +736,7 @@ struct redisServer {
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
-    list *slaves, *monitors;    /* List of slaves and MONITORs */
+    list *slaves, *monitors;    /* 从/监控客户端链表 */
     client *current_client; /* Current client, only used on crash report */
     int clients_paused;         /* True if clients are currently paused */
     mstime_t clients_pause_end_time; /* Time when we undo clients_paused */

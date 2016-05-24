@@ -2213,7 +2213,8 @@ void call(client *c, int flags) {
     int client_old_flags = c->flags;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
-     * not generated from reading an AOF. */
+     * not generated from reading an AOF. 
+     * 向监控客户端回显其他客户端指令 */
     if (listLength(server.monitors) &&
         !server.loading &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
@@ -2456,7 +2457,7 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub */
+    /* 在发布订阅模式下, 仅允许[P]SUBSCRIBE/[P]UNSUBSCRIBE/PING等相关指令 */
     if (c->flags & CLIENT_PUBSUB &&
         c->cmd->proc != pingCommand &&
         c->cmd->proc != subscribeCommand &&
@@ -3297,12 +3298,16 @@ void infoCommand(client *c) {
     addReplyBulkSds(c, genRedisInfoString(section));
 }
 
+/* 监视器monitor命令的执行函数 */
 void monitorCommand(client *c) {
-    /* ignore MONITOR if already slave or in monitor mode */
+    /* 如果已经处于slave或monitor模式, 直接返回 */
     if (c->flags & CLIENT_SLAVE) return;
 
+    /* 设置标识 */
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
+    /* 加入服务器的监控器列表 */
     listAddNodeTail(server.monitors,c);
+    /* 回应客户端 */
     addReply(c,shared.ok);
 }
 
