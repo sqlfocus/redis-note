@@ -706,7 +706,7 @@ struct redisServer {
     redisDb *db;
     dict *commands;             /* 服务器支持的指令集, 命令rename后 */
     dict *orig_commands;        /* 支持的指令集, before command renaming */
-    aeEventLoop *el;
+    aeEventLoop *el;            /* 事件驱动模型, linux为epoll */
     unsigned lruclock:LRU_BITS; /* Clock for LRU eviction */
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
@@ -719,13 +719,15 @@ struct redisServer {
     /* Networking */
     int port;                   /* 监听接口, 默认6379 */
     int tcp_backlog;            /* TCP listen() backlog */
-    char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to */
-    int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
+    char *bindaddr[CONFIG_BINDADDR_MAX]; /* 建立tcp连接时监听的ip地址数组 */
+    int bindaddr_count;
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
-    int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors */
-    int ipfd_count;             /* Used slots in ipfd[] */
-    int sofd;                   /* Unix socket file descriptor */
+    int ipfd[CONFIG_BINDADDR_MAX];
+    int ipfd_count;             /* 建立的tcp插口描述符, 对应bindaddr[];
+                                    如果bindaddr[]为空, 则指向0.0.0.0/::对应
+                                    的插口描述符 */
+    int sofd;                   /* 如果建立的为unix域插口, 此值为对应描述符 */
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
     int cfd_count;              /* Used slots in cfd[] */
     list *clients;              /* List of active clients */
@@ -900,7 +902,7 @@ struct redisServer {
     list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
-    unsigned int maxclients;            /* Max number of simultaneous clients */
+    unsigned int maxclients;            /* 并发的客户端上限, 默认10000 */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */

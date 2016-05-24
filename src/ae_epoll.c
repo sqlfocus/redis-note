@@ -31,11 +31,13 @@
 
 #include <sys/epoll.h>
 
+/* epoll事件模型的信息结构 */
 typedef struct aeApiState {
-    int epfd;
-    struct epoll_event *events;
+    int epfd;                       /* epoll描述符 */
+    struct epoll_event *events;     /* 监控事件数组 */
 } aeApiState;
 
+/* 建立epoll模式的事件处理模型 */
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 

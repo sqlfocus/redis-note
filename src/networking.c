@@ -73,6 +73,7 @@ client *createClient(int fd) {
         anetEnableTcpNoDelay(NULL,fd);
         if (server.tcpkeepalive)
             anetKeepAlive(NULL,fd,server.tcpkeepalive);
+        /* 添加到 事件监控 系统, linux为epoll; 设置事件处理回调 */
         if (aeCreateFileEvent(server.el,fd,AE_READABLE,
             readQueryFromClient, c) == AE_ERR)
         {
@@ -614,6 +615,7 @@ int clientHasPendingReplies(client *c) {
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(int fd, int flags, char *ip) {
     client *c;
+    /* 创建客户端结构, 维护状态信息, 参数为新建的对应客户端的socket ID */
     if ((c = createClient(fd)) == NULL) {
         serverLog(LL_WARNING,
             "Error registering fd event for the new client: %s (fd=%d)",
@@ -624,7 +626,8 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
     /* If maxclient directive is set and this is one client more... close the
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in non-blocking
-     * mode and we can send an error for free using the Kernel I/O */
+     * mode and we can send an error for free using the Kernel I/O 
+     * 创建客户端后才检测是否超过上限, 仅仅是为了搭便车向客户端发送错误信息 */
     if (listLength(server.clients) > server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
@@ -640,7 +643,9 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
     /* If the server is running in protected mode (the default) and there
      * is no password set, nor a specific interface is bound, we don't accept
      * requests from non loopback interfaces. Instead we try to explain the
-     * user what to do to fix it if needed. */
+     * user what to do to fix it if needed. 
+     * 如果没有设置bind地址, 并且没有密码要求, 只接受来自本地的访问,
+     * 其他地址将错误返回 */
     if (server.protected_mode &&
         server.bindaddr_count == 0 &&
         server.requirepass == NULL &&
@@ -689,7 +694,9 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
     UNUSED(privdata);
 
+    /* 每次处理的请求连接最大数, 默认1000; ???节约事件处理时间??? */
     while(max--) {
+        /* 调用accept()接受TCP连接 */
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -698,6 +705,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        /* 初始化客户端状态信息 */
         acceptCommonHandler(cfd,0,cip);
     }
 }

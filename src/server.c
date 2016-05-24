@@ -1292,7 +1292,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
- * for ready file descriptors. */
+ * for ready file descriptors. 
+ * 本函数在事件处理模型阻塞睡眠前调用 */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
@@ -1751,17 +1752,20 @@ void checkTcpBacklogSettings(void) {
  * error, at least one of the server.bindaddr addresses was
  * impossible to bind, or no bind addresses were specified in the server
  * configuration but the function is not able to bind * for at least
- * one of the IPv4 or IPv6 protocols. */
+ * one of the IPv4 or IPv6 protocols. 
+ *
+ * 根据redis.conf的bind设置, 建立tcp监听插口;
+ * 如果未指定, 则绑定到*地址(0.0.0.0/::);
+ * 并把最终的绑定结果赋值到struct redisServer->ipfd[]/ipfd_count */
 int listenToPort(int port, int *fds, int *count) {
     int j;
 
-    /* Force binding of 0.0.0.0 if no bind address is specified, always
-     * entering the loop if j == 0. */
     if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
     for (j = 0; j < server.bindaddr_count || j == 0; j++) {
+        /* 未指定绑定地址(redis.conf中的bind), 分别建立ipv6/ipv4插口,
+         * 绑定到*(0.0.0.0/0::0), 仅当server.bindaddr[0]==NULL时进入
+         * 此分支 */
         if (server.bindaddr[j] == NULL) {
-            /* Bind * for both IPv6 and IPv4, we enter here only if
-             * server.bindaddr_count == 0. */
             fds[*count] = anetTcp6Server(server.neterr,port,NULL,
                 server.tcp_backlog);
             if (fds[*count] != ANET_ERR) {
@@ -1776,16 +1780,14 @@ int listenToPort(int port, int *fds, int *count) {
                     (*count)++;
                 }
             }
-            /* Exit the loop if we were able to bind * on IPv4 and IPv6,
-             * otherwise fds[*count] will be ANET_ERR and we'll print an
-             * error and return to the caller with an error. */
+
             if (*count == 2) break;
+        /* 绑定IPv6地址 */
         } else if (strchr(server.bindaddr[j],':')) {
-            /* Bind IPv6 address. */
             fds[*count] = anetTcp6Server(server.neterr,port,server.bindaddr[j],
                 server.tcp_backlog);
+        /* 绑定IPv4地址 */
         } else {
-            /* Bind IPv4 address. */
             fds[*count] = anetTcpServer(server.neterr,port,server.bindaddr[j],
                 server.tcp_backlog);
         }
@@ -1796,6 +1798,7 @@ int listenToPort(int port, int *fds, int *count) {
                 port, server.neterr);
             return C_ERR;
         }
+        /* 非阻塞模式 */
         anetNonBlock(NULL,fds[*count]);
         (*count)++;
     }
@@ -1861,10 +1864,11 @@ void initServer(void) {
 
     createSharedObjects();
     adjustOpenFilesLimit();
+    /* 建立epoll事件模型, 并发量 = 支持的最大客户端数 + 裕度 */
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
-    /* Open the TCP listening socket for the user commands. */
+    /* 开启TCP监控接口, 默认6379 */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
@@ -1932,7 +1936,8 @@ void initServer(void) {
     }
 
     /* Create an event handler for accepting new connections in TCP and Unix
-     * domain sockets. */
+     * domain sockets. 创建监听事件, 监听建立的TCP插口和UNIX域, 事件处理
+     * 函数acceptTcpHandler/acceptUnixHandler() */
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
@@ -3912,6 +3917,7 @@ int redisIsSupervised(int mode) {
 }
 
 
+/* redis服务端入口 */
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
@@ -4045,10 +4051,12 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
     }
 
+    /* 进程精灵化 */
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
 
+    /* 服务器信息初始化, 包括信号处理/事件模型等 */
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
@@ -4083,6 +4091,7 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?", server.maxmemory);
     }
 
+    /* 设置事件模型阻塞睡眠前的处理句柄 */
     aeSetBeforeSleepProc(server.el,beforeSleep);
     /* 事件处理入口 */
     aeMain(server.el);

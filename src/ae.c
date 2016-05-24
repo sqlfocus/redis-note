@@ -60,6 +60,7 @@
     #endif
 #endif
 
+/* 创建事件处理模型 */
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
@@ -75,6 +76,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->stop = 0;
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
+    /* 创建事件模型的统一接口, epoll调用epoll_create() */
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -258,7 +260,7 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
     return nearest;
 }
 
-/* Process time events */
+/* 处理定时器事件的句柄, Process time events */
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te, *prev;
@@ -345,24 +347,28 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_DONT_WAIT set the function returns ASAP until all
  * the events that's possible to process without to wait are processed.
  *
- * The function returns the number of events processed. */
+ * The function returns the number of events processed. 
+ *
+ * 此函数处理 插口事件(file event) 和 定时器事件(time event);
+ * 如无特殊标识, 此函数将阻塞睡眠到有 插口/定时器事件 待处理 */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
 
-    /* Nothing to do? return ASAP */
+    /* 什么事件都不处理? 直接返回, Nothing to do? return ASAP */
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
     /* Note that we want call select() even if there are no
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
-     * to fire. */
+     * to fire. 计算阻塞时间, min(最近的定时器, forever) */
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
         aeTimeEvent *shortest = NULL;
         struct timeval tv, *tvp;
 
+        /* 最近到时的定时器 */
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
             shortest = aeSearchNearestTimer(eventLoop);
         if (shortest) {
@@ -384,6 +390,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 tvp->tv_sec = 0;
                 tvp->tv_usec = 0;
             }
+        /* 无定时器事件, 永久等待 */
         } else {
             /* If we have to check for events but need to return
              * ASAP because of AE_DONT_WAIT we need to set the timeout
@@ -397,14 +404,16 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
         }
 
+        /* 调用epoll_wait(), 等待插口事件或定时器事件 */
         numevents = aeApiPoll(eventLoop, tvp);
+        /* 处理插口事件 */
         for (j = 0; j < numevents; j++) {
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
             int rfired = 0;
 
-	    /* note the fe->mask & mask & ... code: maybe an already processed
+	        /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
              * processed, so we check if the event is still valid. */
             if (fe->mask & mask & AE_READABLE) {
@@ -418,7 +427,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             processed++;
         }
     }
-    /* Check time events */
+    /* 检查 定时器事件 */
     if (flags & AE_TIME_EVENTS)
         processed += processTimeEvents(eventLoop);
 
@@ -448,10 +457,14 @@ int aeWait(int fd, int mask, long long milliseconds) {
 }
 
 void aeMain(aeEventLoop *eventLoop) {
+    /* 初始化循环退出标识 */
     eventLoop->stop = 0;
+    /* 事件处理循环 */
     while (!eventLoop->stop) {
+        /* 阻塞睡眠前的处理 */
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
+        /* 事件处理, 定时器处理, 阻塞睡眠 */
         aeProcessEvents(eventLoop, AE_ALL_EVENTS);
     }
 }

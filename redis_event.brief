@@ -1,0 +1,61 @@
+本文档简要摘录redis的事件处理模型, 以期了解redis的串行化, 及
+高效率模型.
+
+
+初始化流程
+----------
+--main()                                            src/server.c 
+    --initServer()
+        --aeCreateEventLoop()                       src/ae.c
+            --aeApiCreate()                         src/ae_epoll.c
+                --epoll_create()
+        --listenToPort()                            src/server.c
+            --anetTcp6Server()
+            --anetTcpServer()                       src/anet.c
+                --_anetTcpServer()
+                    --socket()
+                    --anetSetReuseAddr()
+                        --setsockopt()
+                    --anetListen()
+                        --bind()
+                        --listen()
+            --anetNonBlock()
+        --...
+        --aeCreateFileEvent()                       src/ae.c
+            --aeApiAddEvent()                       读事件, acceptTcpHandler()
+                --epoll_ctl()                       处理tcp插口的accept事件
+    --...
+    --aeSetBeforeSleepProc()                        src/server.c
+    --aeMain()
+        --beforeSleep()
+        --aeProcessEvents()                         src/ae.c
+            --aeApiPoll()
+                --epoll_wait()
+            --aeFileEvent->rfileProc/wfileProc()
+            --processTimeEvents()
+                --aeTimeEvent->timeProc()
+    --aeDeleteEventLoop()
+
+
+acceptTcpHandler()
+------------------
+此函数用于接收客户端的连接请求
+--anetTcpAccept()                                   src/anet.c
+    --anetGenericAccept()
+        --accept()
+    --acceptCommonHandler()
+        --createClient()                            src/networking.c
+            --aeCreateFileEvent()                       注册客户端请求事件,
+                --aeApiAddEvent()                       readQueryFromClient()
+
+            --selectDb(, 0)
+            --...
+            --initClientMultiState()                src/multi.c
+
+readQueryFromClient()
+---------------------
+此函数用于接收已连接客户端的请求指令, 参考redis_command.brief
+--read()
+--processInputBuffer()
+
+

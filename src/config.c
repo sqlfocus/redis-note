@@ -210,6 +210,7 @@ void loadServerConfigFromString(char *config) {
             if (server.tcp_backlog < 0) {
                 err = "Invalid backlog value"; goto loaderr;
             }
+        /* 处理bind, 指定建立tcp连接时监听的ip地址 */
         } else if (!strcasecmp(argv[0],"bind") && argc >= 2) {
             int j, addresses = argc-1;
 
