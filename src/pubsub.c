@@ -54,30 +54,32 @@ int clientSubscriptionsCount(client *c) {
 }
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
- * 0 if the client was already subscribed to that channel. */
+ * 0 if the client was already subscribed to that channel. 
+ * 为某个客户端订阅某个频道 */
 int pubsubSubscribeChannel(client *c, robj *channel) {
     dictEntry *de;
     list *clients = NULL;
     int retval = 0;
 
-    /* Add the channel to the client -> channels hash table */
+    /* 添加到客户端的频道集 */
     if (dictAdd(c->pubsub_channels,channel,NULL) == DICT_OK) {
         retval = 1;
-        incrRefCount(channel);
-        /* Add the client to the channel -> list of clients hash table */
+        incrRefCount(channel);      /* 增加对象的引用计数 */
+        /* 添加客户单到订阅此频道的客户端链表 */
         de = dictFind(server.pubsub_channels,channel);
-        if (de == NULL) {
+        if (de == NULL) {           /* 第一个订阅此频道的客户端, 创建链表 */
             clients = listCreate();
             dictAdd(server.pubsub_channels,channel,clients);
             incrRefCount(channel);
-        } else {
+        } else {                    /* 后续订阅的客户端, 直接添加到链表 */
             clients = dictGetVal(de);
         }
         listAddNodeTail(clients,c);
     }
-    /* Notify the client */
-    addReply(c,shared.mbulkhdr[3]);
-    addReply(c,shared.subscribebulk);
+    /* 回应客户端, 命令执行情况; 此处利用了shared(全局共享的对象), 节约了
+     * 内存, 也减少了动态内存的次数 */
+    addReply(c,shared.mbulkhdr[3]);     /* '*3\r\n' */
+    addReply(c,shared.subscribebulk);   /* '$9\r\nsubscribe\r\n' */
     addReplyBulk(c,channel);
     addReplyLongLong(c,clientSubscriptionsCount(c));
     return retval;
@@ -127,17 +129,19 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
 int pubsubSubscribePattern(client *c, robj *pattern) {
     int retval = 0;
 
+    /* 添加到客户端的订阅发布模型链表 */
     if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
         retval = 1;
         pubsubPattern *pat;
         listAddNodeTail(c->pubsub_patterns,pattern);
         incrRefCount(pattern);
         pat = zmalloc(sizeof(*pat));
+        /* 编码pattern为sds模式, 并加入服务器的链表 */
         pat->pattern = getDecodedObject(pattern);
         pat->client = c;
         listAddNodeTail(server.pubsub_patterns,pat);
     }
-    /* Notify the client */
+    /* 回应客户端 */
     addReply(c,shared.mbulkhdr[3]);
     addReply(c,shared.psubscribebulk);
     addReplyBulk(c,pattern);
@@ -221,14 +225,14 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     return count;
 }
 
-/* Publish a message */
+/* 向订阅此频道和匹配的模式的客户端发送消息 */
 int pubsubPublishMessage(robj *channel, robj *message) {
     int receivers = 0;
     dictEntry *de;
     listNode *ln;
     listIter li;
 
-    /* Send to clients listening for that channel */
+    /* 向订阅此频道的客户端发送消息 */
     de = dictFind(server.pubsub_channels,channel);
     if (de) {
         list *list = dictGetVal(de);
@@ -246,7 +250,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             receivers++;
         }
     }
-    /* Send to clients listening to matching channels */
+    /* 向匹配模式的客户端发送消息 */
     if (listLength(server.pubsub_patterns)) {
         listRewind(server.pubsub_patterns,&li);
         channel = getDecodedObject(channel);
@@ -274,6 +278,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
  * Pubsub commands implementation
  *----------------------------------------------------------------------------*/
 
+/* subscribe命令的执行函数 */
 void subscribeCommand(client *c) {
     int j;
 
@@ -294,6 +299,7 @@ void unsubscribeCommand(client *c) {
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
+/* psubscribe命令的执行函数 */
 void psubscribeCommand(client *c) {
     int j;
 
@@ -315,11 +321,13 @@ void punsubscribeCommand(client *c) {
 }
 
 void publishCommand(client *c) {
+    /* 向订阅的客户端发送消息, 包括订阅频道或模式 */
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
         clusterPropagatePublish(c->argv[1],c->argv[2]);
     else
         forceCommandPropagation(c,PROPAGATE_REPL);
+    /* 回应客户端消息的最后添加字段, 订阅客户端的个数 */
     addReplyLongLong(c,receivers);
 }
 

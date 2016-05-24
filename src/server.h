@@ -572,14 +572,16 @@ typedef struct client {
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
-    list *reply;            /* List of reply objects to send to the client. */
-    unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
+    list *reply;            /* 回应客户端的对象列表 */
+    unsigned long long reply_bytes; 
+                            /* ->reply链表对象转换为字符串的长度 */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
-    int flags;              /* Client flags: CLIENT_* macros. */
+    int flags;              /* 客户端标识: CLIENT_*, 
+                               如 CLIENT_PUBSUB, 发布者/订阅者模式 */
     int authenticated;      /* When requirepass is non-NULL. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
@@ -601,13 +603,12 @@ typedef struct client {
     blockingState bpop;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
-    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
-    list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+    dict *pubsub_channels;  /* 客户端订阅的频道集(命令SUBSCRIBE) */
+    list *pubsub_patterns;  /* 客户端订阅的模式集(命令PSUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
 
-    /* Response buffer */
-    int bufpos;
-    char buf[PROTO_REPLY_CHUNK_BYTES];
+    int bufpos;             /* 回应客户端的静态缓存, 如果->reply非空 */
+    char buf[PROTO_REPLY_CHUNK_BYTES];  /* 则不能添加到此处 */
 } client;
 
 struct saveparam {
@@ -930,8 +931,8 @@ struct redisServer {
     time_t unixtime;        /* Unix time sampled every cron cycle. */
     long long mstime;       /* Like 'unixtime' but with milliseconds resolution. */
     /* Pubsub */
-    dict *pubsub_channels;  /* Map channels to list of subscribed clients */
-    list *pubsub_patterns;  /* A list of pubsub_patterns */
+    dict *pubsub_channels;  /* hash表, 频道 ==> 订阅此频道的客户端列表 */
+    list *pubsub_patterns;  /* 订阅模式列表 */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
     /* Cluster */

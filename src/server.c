@@ -55,8 +55,8 @@
 #include <locale.h>
 #include <sys/socket.h>
 
-/* Our shared "common" objects */
-
+/* 全局共享的通用对象, 节约内存, 减少malloc的次数
+ * 在createSharedObjects()中初始化 */
 struct sharedObjectsStruct shared;
 
 /* Global vars that are actually used as constants. The following double
@@ -1862,6 +1862,7 @@ void initServer(void) {
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
+    /* 创建共享对象, 初始化shared */
     createSharedObjects();
     adjustOpenFilesLimit();
     /* 建立epoll事件模型, 并发量 = 支持的最大客户端数 + 裕度 */

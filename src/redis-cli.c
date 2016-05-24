@@ -88,7 +88,8 @@ static struct config {
     int interactive;                    /* 是否为命令行交互模式 */
     int shutdown;
     int monitor_mode;
-    int pubsub_mode;
+    int pubsub_mode;                    /* 发布者订阅模式, 此模式下CLI
+                                            将不返回, 直到按下CTRL+C */
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
@@ -828,6 +829,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
 
     if (!strcasecmp(command,"shutdown")) config.shutdown = 1;
     if (!strcasecmp(command,"monitor")) config.monitor_mode = 1;
+    /* 开启发布者订阅模式 */
     if (!strcasecmp(command,"subscribe") ||
         !strcasecmp(command,"psubscribe")) config.pubsub_mode = 1;
     if (!strcasecmp(command,"sync") ||
@@ -865,10 +867,11 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             fflush(stdout);
         }
 
+        /* 发布者订阅模式, 将只监听接收服务器段发送的消息 */
         if (config.pubsub_mode) {
             if (config.output != OUTPUT_RAW)
                 printf("Reading messages... (press Ctrl-C to quit)\n");
-            while (1) {
+            while (1) {         /* !!!万恶的死循环!!! */
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
             }
         }

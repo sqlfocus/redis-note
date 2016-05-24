@@ -1,0 +1,53 @@
+本文档简略摘录redis的发布订阅功能, 以便丰富redis的作为IPC的应用场景.
+
+
+基本命令
+--------
+publish             向某个频道发布信息
+subscribe           订阅一个或多个频道
+psubscribe          订阅一个模式
+
+每当其他客户端向某个频道发送消息时, 消息不仅会发送给订阅此频道的所有
+订阅者, 它还会被发送给所有与这个频道相匹配的模式的订阅者.
+
+执行[p]subscribe订阅命令后, CLI界面不返回, 不再接收输入指令, 而是不停的
+吐服务器端订阅频道发送的消息. 原因如下: 
+--main()                                            src/redis-cli.c
+    --repl()
+        --issueCommandRepeat()
+            --cliSendCommand()
+                --if (config.pubsub_mode)
+                    --while (1)
+                        --cliReadReply()
+
+subscribeCommand()
+------------------
+对应命令subscribe的执行函数, 订阅某频道
+--pubsubSubscribeChannel()                          src/pubsub.c
+    --dictAdd(client->pubsub_channels,)
+    --dictAdd(redisServer.pubsub_channels,,)
+    --addReply()
+
+psubscribeCommand()
+------------------
+对应命令psubscribe的执行函数, 订阅某模式
+--pubsubSubscribePattern()                          src/pubsub.c
+    --listAddNodeTail(client->pubsub_patterns,)
+    --getDecodedObject()
+    --listAddNodeTail(redisServer.pubsub_patterns,)
+    --addReply()
+
+publishCommand()
+----------------
+对应命令publish的执行函数, 向某频道发布消息
+--pubsubPublishMessage()                            src/pubsub.c
+    --dictFind(redisServer.pubsub_channels,)
+        --addReply()
+        --addReplyBulk()
+    --listRewind(redisServer.pubsub_patterns)
+        --addReply()
+        --addReplyBulk()
+--forceCommandPropagation()
+--addReplyLongLong()
+
+
