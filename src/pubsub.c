@@ -257,6 +257,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         while ((ln = listNext(&li)) != NULL) {
             pubsubPattern *pat = ln->value;
 
+            /* 内部自实现的模式串匹配, 可以考虑PCRE等替换 */
             if (stringmatchlen((char*)pat->pattern->ptr,
                                 sdslen(pat->pattern->ptr),
                                 (char*)channel->ptr,
@@ -331,8 +332,9 @@ void publishCommand(client *c) {
     addReplyLongLong(c,receivers);
 }
 
-/* PUBSUB command for Pub/Sub introspection. */
+/* pubsub指令的处理函数, 用于提取订阅频道/模式相关的信息 */
 void pubsubCommand(client *c) {
+    /* pubsub channels子命令 */
     if (!strcasecmp(c->argv[1]->ptr,"channels") &&
         (c->argc == 2 || c->argc ==3))
     {
@@ -357,6 +359,7 @@ void pubsubCommand(client *c) {
         }
         dictReleaseIterator(di);
         setDeferredMultiBulkLength(c,replylen,mblen);
+    /* pubsub numsub子命令 */
     } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
         /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
         int j;
@@ -368,6 +371,7 @@ void pubsubCommand(client *c) {
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c,l ? listLength(l) : 0);
         }
+    /* pubsub numpat子命令 */
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,listLength(server.pubsub_patterns));
