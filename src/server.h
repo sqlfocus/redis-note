@@ -705,7 +705,7 @@ struct clusterState;
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
-    char *configfile;           /* Absolute config file path, or NULL */
+    char *configfile;           /* 配置文件(绝对路径) */
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
     int hz;                     /* serverCron() calls frequency in hertz */
@@ -941,9 +941,10 @@ struct redisServer {
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
     /* Cluster */
-    int cluster_enabled;      /* Is cluster enabled? */
-    mstime_t cluster_node_timeout; /* Cluster node timeout. */
-    char *cluster_configfile; /* Cluster auto-generated config file name. */
+    int cluster_enabled;            /* 激活了集群模式? 0/1 */
+    mstime_t cluster_node_timeout;  /* 集群节点失活的毫秒数 */
+    char *cluster_configfile;       /* 自动生成的节点配置文件, 不同的节点此
+                                        文件名不能相同 */
     struct clusterState *cluster;  /* State of the cluster */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_slave_validity_factor; /* Slave max data age for failover. */

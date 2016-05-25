@@ -4015,6 +4015,7 @@ int main(int argc, char **argv) {
         /* First argument is the config file name? */
         if (argv[j][0] != '-' || argv[j][1] != '-') {
             configfile = argv[j];
+            /* 提取配置文件 */
             server.configfile = getAbsolutePath(configfile);
             /* Replace the config file in server.exec_argv with
              * its absoulte path. */
@@ -4053,6 +4054,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
         resetServerSaveParams();
+        /* 解析配置文件, redis.conf */
         loadServerConfig(configfile,options);
         sdsfree(options);
     } else {

@@ -80,18 +80,19 @@ typedef struct clusterNodeFailReport {
 } clusterNodeFailReport;
 
 typedef struct clusterNode {
-    mstime_t ctime; /* Node object creation time. */
-    char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
-    int flags;      /* CLUSTER_NODE_... */
-    uint64_t configEpoch; /* Last configEpoch observed for this node */
-    unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
-    int numslots;   /* Number of slots handled by this node */
-    int numslaves;  /* Number of slave nodes, if this is a master */
-    struct clusterNode **slaves; /* pointers to slave nodes */
-    struct clusterNode *slaveof; /* pointer to the master node. Note that it
-                                    may be NULL even if the node is a slave
-                                    if we don't have the master node in our
-                                    tables. */
+    mstime_t ctime;                 /* 节点创建时间 */
+    char name[CLUSTER_NAMELEN];     /* Node name, hex string, sha1-size */
+    int flags;                      /* 节点标识, CLUSTER_NODE_... */
+    uint64_t configEpoch;           /* 实现故障转移, 
+                                       Last configEpoch observed */
+    unsigned char slots[CLUSTER_SLOTS/8]; 
+                                    /* 处理的槽位标识数组 */
+    int numslots;                   /* 处理的槽数量 */
+    int numslaves;                  /* ->slaves[]大小 */
+    struct clusterNode **slaves;    /* 本节点为主节点时, 从节点 */
+    struct clusterNode *slaveof;    /* 本节点为从节点时, 指向主节点; 即使
+                                       本节点为从节点, 也可能为空, 如果没
+                                       有主节点在节点表中 */
     mstime_t ping_sent;      /* Unix time we sent latest ping */
     mstime_t pong_received;  /* Unix time we received the pong */
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
@@ -99,22 +100,28 @@ typedef struct clusterNode {
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
-    char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
-    int port;                   /* Latest known port of this node */
-    clusterLink *link;          /* TCP/IP link with this node */
+    char ip[NET_IP_STR_LEN];        /* 地址(Latest known) */
+    int port;                       /* 端口号(Latest known) */
+    clusterLink *link;              /* 连接节点的信息,
+                                       TCP/IP link with this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
+/* 在当前节点的视角下, 集群目前所处的状态 */
 typedef struct clusterState {
-    clusterNode *myself;  /* This node */
+    clusterNode *myself;        /* 当前节点 */
     uint64_t currentEpoch;
-    int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
-    int size;             /* Num of master nodes with at least one slot */
-    dict *nodes;          /* Hash table of name -> clusterNode structures */
-    dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
+    int state;                  /* 集群状态, CLUSTER_OK, CLUSTER_FAIL... */
+    int size;                   /* 至少处理着一个槽的节点的数量 */
+    dict *nodes;                /* 集群节点集, 节点名-> clusterNode */
+    dict *nodes_black_list;     /* Nodes we don't re-add for a few seconds. */
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     clusterNode *slots[CLUSTER_SLOTS];
+                                /* 处理槽的节点信息汇总, 便于查找槽是否
+                                 * 分配以及分配给谁; 各个节点也记录了自
+                                 * 身的槽信息, slots[]/numslots, 便于
+                                 * 内部操作加速, 如同步自身的槽信息等 */
     zskiplist *slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */
@@ -168,9 +175,9 @@ typedef struct clusterState {
  * address for all the next messages. */
 typedef struct {
     char nodename[CLUSTER_NAMELEN];
-    uint32_t ping_sent;
-    uint32_t pong_received;
-    char ip[NET_IP_STR_LEN];  /* IP address last time it was seen */
+    uint32_t ping_sent;         /* 最后一次向此节点发送PING消息的时间戳 */
+    uint32_t pong_received;     /* 最后一次从此节点收到PONG消息的时间戳 */
+    char ip[NET_IP_STR_LEN];    /* IP address last time it was seen */
     uint16_t port;              /* port last time it was seen */
     uint16_t flags;             /* node->flags copy */
     uint16_t notused1;          /* Some room for future improvements. */
@@ -182,12 +189,12 @@ typedef struct {
 } clusterMsgDataFail;
 
 typedef struct {
-    uint32_t channel_len;
-    uint32_t message_len;
+    uint32_t channel_len;       /* channel参数的长度 */
+    uint32_t message_len;       /* message参数的长度 */
     /* We can't reclare bulk_data as bulk_data[] since this structure is
      * nested. The 8 bytes are removed from the count during the message
      * length computation. */
-    unsigned char bulk_data[8];
+    unsigned char bulk_data[8]; /* 保存channel参数 + message参数 */
 } clusterMsgDataPublish;
 
 typedef struct {
@@ -227,22 +234,23 @@ typedef struct {
     uint16_t ver;       /* Protocol version, currently set to 0. */
     uint16_t notused0;  /* 2 bytes not used. */
     uint16_t type;      /* Message type */
-    uint16_t count;     /* Only used for some kind of messages. */
+    uint16_t count;     /* 消息正文包含的节点信息数量, 只在发送MEET/PING
+                           /PONG这三种gossip消息时使用 */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
     uint64_t configEpoch;   /* The config epoch if it's a master, or the last
                                epoch advertised by its master if it is a
                                slave. */
     uint64_t offset;    /* Master replication offset if node is a master or
                            processed replication offset if node is a slave. */
-    char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
-    unsigned char myslots[CLUSTER_SLOTS/8];
-    char slaveof[CLUSTER_NAMELEN];
+    char sender[CLUSTER_NAMELEN];           /* 发送节点名 */
+    unsigned char myslots[CLUSTER_SLOTS/8]; /* 发送者目前的槽指派信息 */
+    char slaveof[CLUSTER_NAMELEN];          /* 主节点名或NULL */
     char notused1[32];  /* 32 bytes reserved for future usage. */
-    uint16_t port;      /* Sender TCP base port */
-    uint16_t flags;     /* Sender node flags */
-    unsigned char state; /* Cluster state from the POV of the sender */
-    unsigned char mflags[3]; /* Message flags: CLUSTERMSG_FLAG[012]_... */
-    union clusterMsgData data;
+    uint16_t port;                          /* 发送者端口号 */
+    uint16_t flags;                         /* 发送者的标识 */
+    unsigned char state;        /* 发送者角度的集群状态 */
+    unsigned char mflags[3];    /* Message flags: CLUSTERMSG_FLAG[012]_... */
+    union clusterMsgData data;  /* 消息正文 */
 } clusterMsg;
 
 #define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))

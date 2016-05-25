@@ -492,13 +492,16 @@ void loadServerConfigFromString(char *config) {
                     err = "Target command name already exists"; goto loaderr;
                 }
             }
+        /* 处理cluster-enabled, 是否启动集群模式 */
         } else if (!strcasecmp(argv[0],"cluster-enabled") && argc == 2) {
             if ((server.cluster_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        /* 处理cluster-config-file,  */
         } else if (!strcasecmp(argv[0],"cluster-config-file") && argc == 2) {
             zfree(server.cluster_configfile);
             server.cluster_configfile = zstrdup(argv[1]);
+        /* 处理cluster-require-full-coverage,  */
         } else if (!strcasecmp(argv[0],"cluster-require-full-coverage") &&
                     argc == 2)
         {
@@ -506,11 +509,13 @@ void loadServerConfigFromString(char *config) {
             {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        /* 处理cluster-node-timeout,  */
         } else if (!strcasecmp(argv[0],"cluster-node-timeout") && argc == 2) {
             server.cluster_node_timeout = strtoll(argv[1],NULL,10);
             if (server.cluster_node_timeout <= 0) {
                 err = "cluster node timeout must be 1 or greater"; goto loaderr;
             }
+        /* 处理cluster-migration-barrier,  */
         } else if (!strcasecmp(argv[0],"cluster-migration-barrier")
                    && argc == 2)
         {
@@ -519,6 +524,7 @@ void loadServerConfigFromString(char *config) {
                 err = "cluster migration barrier must zero or positive";
                 goto loaderr;
             }
+        /* 处理cluster-slave-validity-factor,  */
         } else if (!strcasecmp(argv[0],"cluster-slave-validity-factor")
                    && argc == 2)
         {

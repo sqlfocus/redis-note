@@ -1,0 +1,34 @@
+本文档摘录redis的集群操作, 以便更深入了解一致性hash以及集群同步等.
+
+
+基本概念
+---------
+一个redis集群由多个节点组成, 在刚开始的时候, 每个节点都是独立的, 它们
+都处于一个只包含自己的集群中; 我们必须把各个独立的节点连接起来,构建一
+个包含多个节点的集群.
+
+启动cluster节点服务器
+    配置redis.conf文件
+    释放注释"cluster-enabled yes"
+
+连接各个节点的指令
+    启动cli
+    执行指令"cluster meet <ip> <port>"
+
+槽指派(槽索引0~16383)
+    启动cli
+    执行指令"cluster addslots <slot>"
+
+
+服务器端流程
+------------
+--main()                                            src/server.c
+    --loadServerConfig()                            src/config.c
+        --loadServerConfigFromString()
+            --赋值redisServer.cluster_enabled
+            --...
+--
+
+
+
+
