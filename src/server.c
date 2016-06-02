@@ -1085,8 +1085,19 @@ void updateCachedTime(void) {
  * Everything directly called here will be called server.hz times per second,
  * so in order to throttle execution of things we want to do less frequently
  * a macro is used: run_with_period(milliseconds) { .... }
+ *
+ * 时钟中断函数, 每秒调用server.hz次; 主要处理后台的异步事件, 如
+ *      过期键收集
+ *      软watchdog
+ *      更新统计值
+ *      rehash
+ *      触发BGSAVE/AOF
+ *      客户端请求超时
+ *      复制重连
+ *      ...
+ * 在本函数中直接调用, 执行频率为server.hz, 为了降低执行频率, 可以使用宏
+ * run_with_period(ms) {...}
  */
-
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j;
     UNUSED(eventLoop);
@@ -1268,7 +1279,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     clientsArePaused(); /* Don't check return value, just use the side effect. */
 
     /* Replication cron function -- used to reconnect to master and
-     * to detect transfer failures. */
+     * to detect transfer failures. 
+     *
+     * 用于复制模式, 重新连接主服务器, 发现传输失败等; 频率1000ms/次 */
     run_with_period(1000) replicationCron();
 
     /* Run the Redis Cluster cron. */
@@ -1930,7 +1943,9 @@ void initServer(void) {
     updateCachedTime();
 
     /* Create the serverCron() time event, that's our main way to process
-     * background operations. */
+     * background operations. 
+     *
+     * 创建时钟事件serverCron, 它是后台处理异步操作主入口 */
     if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create the serverCron time event.");
         exit(1);

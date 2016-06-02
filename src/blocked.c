@@ -132,6 +132,7 @@ void processUnblockedClients(void) {
 /* Unblock a client calling the right function depending on the kind
  * of operation the client is blocking for. */
 void unblockClient(client *c) {
+    /* 根据阻塞类型解除阻塞 */
     if (c->btype == BLOCKED_LIST) {
         unblockClientWaitingData(c);
     } else if (c->btype == BLOCKED_WAIT) {
@@ -140,12 +141,16 @@ void unblockClient(client *c) {
         serverPanic("Unknown btype in unblockClient().");
     }
     /* Clear the flags, and put the client in the unblocked list so that
-     * we'll process new commands in its query buffer ASAP. */
+     * we'll process new commands in its query buffer ASAP. 
+     * 
+     * 清楚阻塞标记, 以便于处理缓存的指令 */
     c->flags &= ~CLIENT_BLOCKED;
     c->btype = BLOCKED_NONE;
     server.bpop_blocked_clients--;
     /* The client may already be into the unblocked list because of a previous
-     * blocking operation, don't add back it into the list multiple times. */
+     * blocking operation, don't add back it into the list multiple times. 
+     *
+     * 加入待解除阻塞链表 */
     if (!(c->flags & CLIENT_UNBLOCKED)) {
         c->flags |= CLIENT_UNBLOCKED;
         listAddNodeTail(server.unblocked_clients,c);
@@ -170,7 +175,12 @@ void replyToBlockedClientTimedOut(client *c) {
  * is called when a master turns into a slave.
  *
  * The semantics is to send an -UNBLOCKED error to the client, disconnecting
- * it at the same time. */
+ * it at the same time. 
+ *
+ * 断开正在阻塞的客户端, 因为某些事情使得阻塞不再安全; 比如当服务器从主
+ * 模式转为从模式时, 阻塞的客户端不再安全;
+ *
+ * 实现方式为向客户端发送UNBLOCKED错误, 然后断开 */
 void disconnectAllBlockedClients(void) {
     listNode *ln;
     listIter li;
@@ -183,7 +193,9 @@ void disconnectAllBlockedClients(void) {
             addReplySds(c,sdsnew(
                 "-UNBLOCKED force unblock from blocking operation, "
                 "instance state changed (master -> slave?)\r\n"));
+            /* 根据具体的阻塞情况执行对应操作 */
             unblockClient(c);
+            /* 设置标识: 发送回应后, 断开连接 */
             c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         }
     }

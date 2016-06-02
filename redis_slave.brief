@@ -1,0 +1,107 @@
+本文档摘录redis主从服务器的实现, 以期更深入了解它们的交互机制.
+
+
+本机搭建主从服务器的流程
+------------------------
+启动redis主服务器(端口号6379)
+    ./redis-server redis.6379.conf
+启动redis从服务器(端口号20000)
+    ./redis-server redis.20000.conf
+建立主从关系
+    ./redis-cli -p 20000 SLAVEOF 127.0.0.1 6379
+撤销主从关系
+    ./redis-cli -p 20000 SLAVEOF no one 
+
+
+slaveofCommand()
+----------------
+此函数对应slaveof指令的服务器端处理入口
+--getLongFromObjectOrReply()                        src/replication.c
+--replicationSetMaster()
+    --redisServer.repl_state = REPL_STATE_CONNECT
+        --后续由replicationCron()函数异步处理
+        -->connectWithMaster()
+--addReply()
+
+
+异步cron处理入口
+----------------
+--main()                                            src/server.c
+    --initServer()
+        --aeCreateTimeEvent(, 1ms, serverCron())
+            --replicationCron()                     src/replication.c
+
+
+connectWithMaster()
+-------------------
+本函数作为slaveof指令的最终发起者(异步)
+--anetTcpNonBlockBestEffortBindConnect()            src/anet.c
+    --anetTcpGenericConnect()
+        --socket()
+        --bind()
+        --connect()
+    --aeCreateFileEvent()                           src/ae.c
+        --syncWithMaster()                          src/replication.c
+                                                    设置connect事件回调
+
+syncWithMaster()
+----------------
+本函数为从服务器和主服务器协商处理流程的主函数, 
+同时变更redisServer.repl_state(主从状态机)
+
+--sendSynchronousCommand()      发送PING        --->REPL_STATE_RECEIVE_PONG
+--sendSynchronousCommand()      接收PONG        --->REPL_STATE_SEND_AUTH
+--sendSynchronousCommand()      发送AUTH        --->REPL_STATE_RECEIVE_AUTH
+--sendSynchronousCommand()      接收认证回应    --->REPL_STATE_SEND_PORT
+--sendSynchronousCommand()      发送监听端口    --->REPL_STATE_RECEIVE_PORT
+--sendSynchronousCommand()      接收回应        --->REPL_STATE_SEND_CAPA
+--sendSynchronousCommand()      发送本端能力    --->REPL_STATE_RECEIVE_CAPA
+--sendSynchronousCommand()      接收回应        --->REPL_STATE_SEND_PSYNC
+--slaveTryPartialResynchronization(,0)  PSYNC   --->REPL_STATE_RECEIVE_PSYNC
+--slaveTryPartialResynchronization(,1)  PSYNC   --->...(不变)
+------------情形一: 重新全量复制----------------
+--open()                        打开temp-{unixtime}.{pid}.rdb, 为同步准备
+--aeCreateFileEvent()           同步数据的处理回调, readSyncBulkPayload()
+--                                              --->REPL_STATE_TRANSFER
+------------情形二: 部分复制-------------------
+--设置redisServer.master
+--设置redisServer.cached_master = null
+--aeCreateFileEvent()           同步数据的处理回调, readQueryFromClient()
+                                /sendReplyToClient() - 参考redis_command.brief
+                                准备接受主服务器同步过来的命令
+--                                              --->REPL_STATE_CONNECTED
+
+
+readSyncBulkPayload()                               src/replication.c
+---------------------
+此回调函数处理PSYNC同步的数据
+--syncReadLine()                读取待传输文件RDB的大小
+--read()                        读数据
+--write()                       回应对端收到的数据
+---------------数据传输完毕--------------
+--rename()                      临时文件更名, 替代现有的RDB文件
+--aeDeleteFileEvent()           取消异步读事件
+--rdbLoad()                     加载到内存
+--replicationCreateMasterClient()   保存主服务器信息
+--startAppendOnly()             启动AOF
+
+
+
+syncCommand()
+-----------------
+SYNC/PSYNC命令的处理, 对于主从复制来说, 主服务器处理此指令
+
+--masterTryPartialResynchronization()
+                                尝试部分主从复制, 如果runid匹配,
+    --匹配runid                     并且从服务器请求的偏移在主服务器
+    --匹配offset                    的备份内存之内, 则同意并发送相应
+    --addReplyReplicationBacklog()  的数据
+--startBgsaveForReplication()   否则进行全量复制, 启动子进程生成RDB临时
+                                    文件
+    --rdbSaveBackground()
+        --fork()
+        --rdbSave()
+
+--replicationSetupSlaveForFullResync()
+                                主进程回复+FULLRESYNC, 表征全量复制开始
+    --write()
