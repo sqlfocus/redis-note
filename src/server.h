@@ -740,8 +740,9 @@ struct redisServer {
                                     如果bindaddr[]为空, 则指向0.0.0.0/::对应
                                     的插口描述符 */
     int sofd;                   /* 如果建立的为unix域插口, 此值为对应描述符 */
-    int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
-    int cfd_count;              /* Used slots in cfd[] */
+    int cfd[CONFIG_BINDADDR_MAX];
+                                /* 集群模式下, 节点间的通信socket */
+    int cfd_count;              /* cfd[]大小 */
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
@@ -884,8 +885,8 @@ struct redisServer {
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* 复制模式(从模式)相关变量, Replication (slave) */
     char *masterauth;               /* 发送AUTH指令时的认证密码 */
-    char *masterhost;               /* 从服务器时, 对应的主服务器, 参数 */
-    int masterport;                 /* 对应的主服务器端口号, 参数 */
+    char *masterhost;               /* 从服务器时, 对应的主服务器 */
+    int masterport;                 /* 对应的主服务器端口号 */
     int repl_timeout;               /* Timeout after N seconds of master idle */
     client *master;                 /* 主从复制的主服务器信息 */
     client *cached_master;          /* 用于部分主从复制的临时信息 */
@@ -956,11 +957,10 @@ struct redisServer {
     mstime_t cluster_node_timeout;  /* 集群节点失活的毫秒数 */
     char *cluster_configfile;       /* 自动生成的节点配置文件, 不同的节点此
                                         文件名不能相同 */
-    struct clusterState *cluster;  /* State of the cluster */
+    struct clusterState *cluster;   /* 集群状态结构 */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
-    int cluster_require_full_coverage; /* If true, put the cluster down if
-                                          there is at least an uncovered slot.*/
+    int cluster_require_full_coverage; /* 标识: 槽位必须全部覆盖 */
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */

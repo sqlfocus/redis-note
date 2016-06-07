@@ -309,6 +309,7 @@ void loadServerConfigFromString(char *config) {
                 err = "maxmemory-samples must be 1 or greater";
                 goto loaderr;
             }
+        /* 主从复制模式的配置信息 */
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             slaveof_linenum = linenum;
             server.masterhost = sdsnew(argv[1]);

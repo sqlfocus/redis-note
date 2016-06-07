@@ -1,5 +1,8 @@
 本文档摘录redis的集群操作, 以便更深入了解一致性hash以及集群同步等.
 
+集群的节点状态依靠gossip协议维护, gossip协议概念参考wiki:
+https://en.wikipedia.org/wiki/Gossip_protocol
+
 
 基本概念
 ---------
@@ -20,15 +23,83 @@
     执行指令"cluster addslots <slot>"
 
 
-服务器端流程
-------------
+服务器端初始化流程
+------------------
 --main()                                            src/server.c
     --loadServerConfig()                            src/config.c
         --loadServerConfigFromString()
             --赋值redisServer.cluster_enabled
             --...
---
+    --initServer()
+        --clusterInit()                             src/cluster.c
+            --clusterLockConfig()
+            --clusterLoadConfig()
+            --listenToPort()
+            --aeCreateFileEvent()                   指定监控事件句柄
+                                                    clusterAcceptHandler(),
+                                                    建立连接后, 创建连接并
+                                                    设置数据处理句柄
+                                                    clusterReadHandler()
+    --verifyClusterConfigWithData()
+    --...
+
+clusterCron()                                       src/cluster.c
+-----------------
+集群模式的异步处理流程, 由serverCron()函数100ms/次调用
+--while()
+    --anetTcpNonBlockBindConnect()
+    --createClusterLink()
+    --aeCreateFileEvent()                           设置节点通信句柄
+                                                        clusterReadHandler()
+    --clusterSendPing()
+--每10次循环调用一次
+    --dictGetRandomKey()
+    --clusterSendPing()
 
 
+clusterBeforeSleep()
+--------------------
+报文处理间隙的集群处理, 如保存集群信息状态等
+--main()
+    --beforeSleep()
+        --clusterBeforeSleep()
+            --clusterHandleSlaveFailover()
+            --clusterUpdateState()
+            --clusterSaveConfigOrDie()
+
+
+clusterReadHandler()
+--------------------
+本函数处理与集群其他节点的通信信息
+--read()
+--clusterProcessPacket()                            src/cluster.c
+
+
+clusterCommand()
+----------------
+服务器端cluster指令的处理函数                       src/cluster.c
+-------------------clust meet----------------------
+--clusterStartHandshake()
+    --createClusterNode()
+    --clusterAddNode()                              设置标识
+                                                        CLUSTER_NODE_HANDSHAKE
+                                                        |CLUSTER_NODE_MEET
+                                                    后续由clusterCron()异步
+                                                    触发协商流程
+--addReply()
+-------------------clust addslots-------------------
+--clusterAddSlot()
+--clusterDoBeforeSleep()
+--addReply()
+
+
+
+集群模式下的命令处理
+--------------------
+--processCommand()                                  src/server.c
+    --getNodeByQuery()                              src/cluster.c
+    --clusterRedirectClient()                       需要重定向的情况
+    --...
+    --call()                                        本节点指令
 
 

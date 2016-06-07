@@ -321,10 +321,12 @@ void punsubscribeCommand(client *c) {
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
+/* publish命令的执行入口函数 */
 void publishCommand(client *c) {
     /* 向订阅的客户端发送消息, 包括订阅频道或模式 */
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
+        /* 集群模式, 向集群内的机器广播此订阅消息 */
         clusterPropagatePublish(c->argv[1],c->argv[2]);
     else
         forceCommandPropagation(c,PROPAGATE_REPL);

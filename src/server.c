@@ -1284,7 +1284,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * 用于复制模式, 重新连接主服务器, 发现传输失败等; 频率1000ms/次 */
     run_with_period(1000) replicationCron();
 
-    /* Run the Redis Cluster cron. */
+    /* 集群模式的异步处理入口 */
     run_with_period(100) {
         if (server.cluster_enabled) clusterCron();
     }
@@ -1313,7 +1313,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
      * so it's a good idea to call it before serving the unblocked clients
-     * later in this function. */
+     * later in this function. 
+     *
+     * 集群模式处理, 如更改集群模式状态等 */
     if (server.cluster_enabled) clusterBeforeSleep();
 
     /* Run a fast expire cycle (the called function will return
@@ -2386,7 +2388,9 @@ int processCommand(client *c) {
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
-     * 2) The command has no key arguments. */
+     * 2) The command has no key arguments. 
+     *
+     * 此处处理集群模式的客户端跳转 */
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
